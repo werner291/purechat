@@ -20,6 +20,7 @@ You can edit this file as you like.
     , "psci-support"
     , "signal"
     , "turbine"
+    , "web-storage"
     ]
 , packages =
     ./packages.dhall

@@ -7,12 +7,10 @@ import Effect (Effect)
 import Effect.Exception (Error)
 import Hareactive.Combinators (filterJust, nextOccurrence, runStreamAff, shiftCurrent, snapshot, snapshotWith, stepper)
 import Hareactive.Types (Behavior, Stream, Future)
-import API (LoginToken, tryLogin)
-import Turbine (Component, component, dynamic, modelView, output, runComponent, use, (</>))
+import API (LoginToken, tryLogin, SessionInfo, stringifyErrors)
+import Turbine (Component, component, output, use, (</>))
 import Turbine.HTML as E
 
-type SessionInfo
-  = { token :: LoginToken, homeserver :: String }
 
 fromLeftMaybe :: forall a b. Either a b -> Maybe a
 fromLeftMaybe (Left x) = Just x
@@ -29,10 +27,6 @@ loginPage =
         h <- on.homeserver
         pure $ tryLogin u p h
 
-      stringifyErrors :: forall a. Either Error (Either String a) -> (Either String a)
-      stringifyErrors (Right x) = x
-
-      stringifyErrors (Left e) = Left (show e)
     loginAttemptResult <- runStreamAff $ snapshot loginAttemptAsync on.submit
     errorMsg <- stepper "" (filterJust $ (fromLeftMaybe <<< stringifyErrors) <$> loginAttemptResult)
     let
@@ -46,7 +40,7 @@ loginPage =
             )
             </> E.div {}
                 ( E.label {} (E.text "Password")
-                    </> E.input { value: on.password } `use` (\o -> { password: o.value })
+                    </> E.input { value: on.password, type: pure "password" } `use` (\o -> { password: o.value })
                 )
             </> E.div {}
                 ( E.label {} (E.text "Homeserver")
