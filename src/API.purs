@@ -1,17 +1,10 @@
 module API
-  ( SessionInfo
-  , LoginToken (..)
-  , tryLogin
-  , unToken
-  , remoteResourceGet
-  , RemoteResourceStatus (..)
+  ( tryLogin
   , stringifyErrors
   , channelList
-  , ChannelIndex
   ) where
 
 import Prelude
-
 import Affjax as AX
 import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
@@ -23,24 +16,17 @@ import Data.Either (Either(..))
 import Effect.Aff (Aff, Error)
 import Hareactive.Combinators (runAffNow, stepTo)
 import Hareactive.Types (Behavior, Now)
-
-type SessionInfo
-  = { token :: LoginToken, homeserver :: String }
-
-newtype LoginToken
-  = LoginToken String
-
-unToken :: LoginToken -> String
-unToken (LoginToken tok) = tok
-
-instance tokenShow :: Show LoginToken where
-  show (LoginToken lt) = "API auth token: " <> lt
+import RemoteResource
+import Purechat.Types
 
 stringifyErrors :: forall a. Either Error (Either String a) -> (Either String a)
 stringifyErrors (Right x) = x
-
 stringifyErrors (Left e) = Left (show e)
 
+-- | Attempt to obtain a login token using the provided username 
+-- | and password pair on the given homeserver uri.
+-- | Aff returns either a string error or a Login token.
+-- | TODO: This thing is rather dumb and does not take .well-known and such into account.
 tryLogin :: String -> String -> String -> Aff (Either String LoginToken)
 tryLogin username password homeserver = do
   let
@@ -64,56 +50,8 @@ tryLogin username password homeserver = do
         (StatusCode 401) -> Left "Authentication failed, please verify credentials."
         _ -> Left $ "Unexpected server response HTTP " <> show (response.statusText)
 
-type ChannelIndex
-  = { channels :: Array { name :: String }
-    }
 
--- loadChannels :: SessionInfo -> Aff ChannelIndex 
--- loadChannels sess = do
---   response <- AX.get AXRF.json (homeserver <> "/_matrix/client/r0/joined_rooms")
---   let idx = do
---     bodyJson <- decodeJson $ response.body
---     rooms_json <- (JSON.getField bodyJson "joined_rooms" >>= decodeJSON)
---     pure ChannelIndex {
---       rooms: $ decodeJSON <$> rooms_json
---     }
-data RemoteResourceStatus a
-  = ResourceLoading
-  | ResourceLoaded a
-  | ResourceError String
-
-instance rrsFunctor :: Functor RemoteResourceStatus where
-  map f (ResourceLoaded a) = ResourceLoaded (f a)
-  map _ ResourceLoading = ResourceLoading
-  map _ (ResourceError e) = ResourceError e
-
-getJSON :: forall a. SessionInfo -> String -> (JSON.Json -> Either String a) -> Aff (Either String a)
-getJSON session path decode = do
-  resp <- AX.request (AX.defaultRequest { url = (session.homeserver <> path),
-     responseFormat = AXRF.json, 
-     headers = [RequestHeader "Authorization" ("Bearer " <> ((\(LoginToken tok) -> tok) session.token))] })
-  case resp.status of
-    (StatusCode 200) -> case resp.body of
-      Left e -> pure $ Left $ AX.printResponseFormatError e
-      Right jsonBody ->
-        let
-          x :: Either String a
-          x = decode jsonBody
-        in
-          pure x
-    _ -> pure $ Left resp.statusText
-
-remoteResourceGet :: forall a. SessionInfo -> String -> (JSON.Json -> Either String a) -> Now (Behavior (RemoteResourceStatus a))
-remoteResourceGet session path decode = do
-  responseJSON <- runAffNow $ getJSON session path decode
-  let
-    eitherToStatus :: Either String a -> RemoteResourceStatus a
-    eitherToStatus (Left e) = ResourceError e
-
-    eitherToStatus (Right a) = ResourceLoaded a
-  pure $ stepTo ResourceLoading (eitherToStatus <<< stringifyErrors <$> responseJSON)
-
-channelList :: SessionInfo -> Now (Behavior (RemoteResourceStatus ChannelIndex))
+channelList :: SessionInfo -> Now (Behavior (RemoteResourceStatus RoomIndex))
 channelList si =
   remoteResourceGet si "/_matrix/client/r0/joined_rooms"
     $ \json -> do

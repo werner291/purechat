@@ -5,9 +5,10 @@ import Data.Either (Either(..), hush)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Exception (Error)
-import Hareactive.Combinators (filterJust, nextOccurrence, runStreamAff, shiftCurrent, snapshot, snapshotWith, stepper)
+import Hareactive.Combinators (filterJust, runStreamAff, snapshot, snapshotWith, stepper)
 import Hareactive.Types (Behavior, Stream, Future)
-import API (LoginToken, tryLogin, SessionInfo, stringifyErrors)
+import API (tryLogin, stringifyErrors)
+import Purechat.Types (LoginToken, SessionInfo)
 import Turbine (Component, component, output, use, (</>))
 import Turbine.HTML as E
 

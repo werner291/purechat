@@ -2,11 +2,12 @@ module Main where
 
 import Prelude
 
-import API (RemoteResourceStatus(..), SessionInfo, channelList, ChannelIndex, LoginToken(..), unToken)
-import Data.Maybe (Maybe(..))
+import Data.Array as A
+import Data.Foldable (foldMap)
+import Data.Maybe (Maybe(..), fromMaybe)
 import Effect (Effect)
 import Effect.Class (liftEffect)
-import Hareactive.Combinators (shiftCurrent, stepper)
+import Hareactive.Combinators (accum, shiftCurrent, stepper)
 import Hareactive.Interop (subscribe)
 import Hareactive.Types (Behavior, Now, Stream)
 import LoginComponent (loginPage)
@@ -16,47 +17,15 @@ import Web.HTML (window)
 import Web.HTML.Window (localStorage)
 import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
 
-roomListComponent :: ChannelIndex -> Component {} {}
-roomListComponent ci =
-  component \o -> do
-    list (\rm -> E.text rm.name) (pure ci.channels) (\rm -> rm.name) `output` {}
+import API (channelList)
+import Purechat.Types (RoomIndex, SessionInfo, unToken, LoginToken(..))
+import RemoteResource (RemoteResourceStatus)
+import ResourceSpinnerView (remoteResourceSpinnerView)
+import CustomFRP (storageStepper, useall)
+import MainPage (mainPage)
 
-    -- TODO figure out how to map output to perhaps a `Behavior (Maybe ...)` or something
-remoteResourceSpinnerView :: forall a. Behavior (RemoteResourceStatus a) -> (a -> Component {} {})-> Component {} {}
-remoteResourceSpinnerView res comp =
-  let 
-    viewToShow :: RemoteResourceStatus a -> Component {} {}
-    viewToShow ResourceLoading = (E.text "Loading...") `use` (const {})
-    viewToShow (ResourceError reason) = (E.text $ "Failed to load: " <> reason)  `use` (const {})
-    viewToShow (ResourceLoaded a) = comp a
-  in (const {} <$> (dynamic (viewToShow <$> res))) `use` (const {})
-
-mainPage :: SessionInfo -> Component { logout :: Stream Unit } {}
-mainPage si =
-  component \o -> do
-
-    channels :: Behavior (RemoteResourceStatus ChannelIndex) <- channelList si
-
-    ( 
-      E.div {} ( remoteResourceSpinnerView channels roomListComponent ) </>
-      E.button {} ( E.text "Logout" ) `use` ( \oo -> {logout : const unit <$> oo.click} )
-    ) `output` {logout:o.logout}
-
--- | A variant of the `stepper` combinator that is initialized with a Storage value.
--- | Whenever the signal produces a value, that value is stored to the Storage.
--- | A value of Nothing will delete the stored value.
-storageStepper :: String -> Storage -> Stream (Maybe String) -> Now (Behavior (Maybe String))
-storageStepper key storage updateSig = do
-  
-  initial <- liftEffect $ do
-    let 
-      storeX (Just x) = setItem key x storage
-      storeX Nothing = removeItem key storage
-    subscribe storeX updateSig
-    getItem key storage
-   
-  stepper initial updateSig
-
+-- | The entry-point application component, whose primary function it is to switch around
+-- | between the login / registration / main activities.
 app :: Component {} {}
 app = component \o -> do
 
@@ -88,7 +57,6 @@ app = component \o -> do
         Just ses -> mainPage ses `use` (\oo -> { updateSession: const Nothing <$> oo.logout })
   
   (dynamic pageToShow `use` (\oo -> { updateSession: shiftCurrent (_.updateSession <$> oo) })) `output` {}
-
 
 main :: Effect Unit
 main = runComponent "#mount" app
