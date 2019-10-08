@@ -12,7 +12,6 @@ import Purechat.Types (LoginToken, SessionInfo)
 import Turbine (Component, component, output, use, (</>))
 import Turbine.HTML as E
 
-
 fromLeftMaybe :: forall a b. Either a b -> Maybe a
 fromLeftMaybe (Left x) = Just x
 

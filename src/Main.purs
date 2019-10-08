@@ -2,26 +2,18 @@ module Main where
 
 import Prelude
 
-import Data.Array as A
-import Data.Foldable (foldMap)
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
-import Hareactive.Combinators (accum, shiftCurrent, stepper)
-import Hareactive.Interop (subscribe)
-import Hareactive.Types (Behavior, Now, Stream)
+import Hareactive.Combinators (shiftCurrent)
+import Hareactive.Types (Behavior, Stream)
 import LoginComponent (loginPage)
-import Turbine (Component, component, dynamic, list, output, runComponent, use, (</>))
-import Turbine.HTML as E
+import Turbine (Component, component, dynamic, output, runComponent, use)
 import Web.HTML (window)
 import Web.HTML.Window (localStorage)
-import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
 
-import API (channelList)
-import Purechat.Types (RoomIndex, SessionInfo, unToken, LoginToken(..))
-import RemoteResource (RemoteResourceStatus)
-import ResourceSpinnerView (remoteResourceSpinnerView)
-import CustomFRP (storageStepper, useall)
+import Purechat.Types (LoginToken(..), SessionInfo, unToken)
+import CustomFRP (storageStepper)
 import MainPage (mainPage)
 
 -- | The entry-point application component, whose primary function it is to switch around

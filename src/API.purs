@@ -21,6 +21,7 @@ import Purechat.Types
 
 stringifyErrors :: forall a. Either Error (Either String a) -> (Either String a)
 stringifyErrors (Right x) = x
+
 stringifyErrors (Left e) = Left (show e)
 
 -- | Attempt to obtain a login token using the provided username 
@@ -49,7 +50,6 @@ tryLogin username password homeserver = do
           _ -> Left "Server returned invalid JSON."
         (StatusCode 401) -> Left "Authentication failed, please verify credentials."
         _ -> Left $ "Unexpected server response HTTP " <> show (response.statusText)
-
 
 channelList :: SessionInfo -> Now (Behavior (RemoteResourceStatus RoomIndex))
 channelList si =

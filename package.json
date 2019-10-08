@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@funkia/hareactive": "^0.3.4",
+    "@funkia/turbine": "^0.4.0"
+  }
+}
