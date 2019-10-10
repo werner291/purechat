@@ -3,12 +3,10 @@ module LoginComponent where
 import Prelude
 import Data.Either (Either(..), hush)
 import Data.Maybe (Maybe(..))
-import Effect (Effect)
-import Effect.Exception (Error)
 import Hareactive.Combinators (filterJust, runStreamAff, snapshot, snapshotWith, stepper)
-import Hareactive.Types (Behavior, Stream, Future)
+import Hareactive.Types (Stream)
 import API (tryLogin, stringifyErrors)
-import Purechat.Types (LoginToken, SessionInfo)
+import Purechat.Types (SessionInfo)
 import Turbine (Component, component, output, use, (</>))
 import Turbine.HTML as E
 
@@ -26,7 +24,6 @@ loginPage =
         p <- on.password
         h <- on.homeserver
         pure $ tryLogin u p h
-
     loginAttemptResult <- runStreamAff $ snapshot loginAttemptAsync on.submit
     errorMsg <- stepper "" (filterJust $ (fromLeftMaybe <<< stringifyErrors) <$> loginAttemptResult)
     let
