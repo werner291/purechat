@@ -10,17 +10,18 @@ You can edit this file as you like.
     , "argonaut-core"
     , "behaviors"
     , "console"
+    , "debug"
     , "effect"
     , "foldable-traversable"
-    , "halogen"
-    , "halogen-css"
-    , "halogen-vdom"
     , "numbers"
     , "profunctor-lenses"
     , "psci-support"
     , "signal"
     , "turbine"
+    , "uuid"
     , "web-storage"
+    , "specular"
+    , "strings"
     ]
 , packages =
     ./packages.dhall

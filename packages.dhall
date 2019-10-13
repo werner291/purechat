@@ -149,10 +149,26 @@ let additions = {
         version = "v0.1.0"
     },
     turbine = {
-        dependencies = ["hareactive"],
+        dependencies = ["hareactive","web-uievents"],
         repo = "https://github.com/funkia/purescript-turbine.git",
         version = "v0.1.0"
-    }
+    },
+    specular = { dependencies =
+          [ "prelude", 
+            "aff", 
+            "random",
+            "record",
+            "unsafe-reference",
+            "avar",
+            "foreign-object",
+            "debug",
+            "generics-rep"
+          ]
+      , repo =
+          "https://github.com/restaumatic/purescript-specular.git"
+      , version =
+          "v0.5.2"
+      }
 }
 
 in  upstream // overrides // additions

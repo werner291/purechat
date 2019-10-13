@@ -3,3 +3,4 @@ node_modules/
 dist/
 .cache/
 .spago/
+.psc-ide-port
