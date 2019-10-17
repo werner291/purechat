@@ -1,8 +1,11 @@
 module API
   ( tryLogin
   , stringifyErrors
-  , longpollStream
-  , flattenArrayStream
+  , pollSyncOnce
+  , pollSyncProducer
+  , SyncPollResult
+  -- , longpollStream
+  -- , flattenArrayStream
   , sendMessage
   ) where
 
@@ -16,37 +19,30 @@ import Affjax.StatusCode (StatusCode(..))
 import Data.Argonaut (Json, decodeJson, getField, (.:), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
-import Data.Foldable (foldMap)
 import Data.HTTP.Method (Method(..))
-import Data.Int (toNumber)
 import Data.Map (Map)
 import Data.Map (fromFoldableWithIndex) as Map
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
 import Data.Traversable (traverse)
 import Data.UUID as UUID
-import Effect.Aff (Aff, Error, Milliseconds(..), catchError, delay, error, message, throwError)
+import Effect.Aff (Aff, Error, error, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
-import Effect.Console as Console
 import Foreign.Object (Object)
-import Hareactive.Combinators (runAffNow)
-import Hareactive.Interop (pushSink, sinkStream', subscribe)
-import Hareactive.Types (Now, Stream)
 import Purechat.Types (LoginToken(..), RoomData, SessionInfo, decodeRoomEvent)
 
 -- | Turns a nested `Either Error (Either String a)` into `Either String a`
 -- | by extracting the error message.
 stringifyErrors :: forall a. Either Error (Either String a) -> (Either String a)
 stringifyErrors (Right x) = x
-
 stringifyErrors (Left e) = Left (show e)
 
 -- | Attempt to obtain a login token using the provided username 
 -- | and password pair on the given homeserver uri.
 -- | Aff returns either a string error or a Login token.
 -- | TODO: This thing is rather dumb and does not take .well-known and such into account.
-tryLogin :: String -> String -> String -> Aff (Either String LoginToken)
+tryLogin :: String -> String -> String -> Aff (Either String SessionInfo)
 tryLogin username password homeserver = do
   let
     reqBody :: JSON.Json
@@ -64,7 +60,7 @@ tryLogin username password homeserver = do
         (StatusCode 200) -> case response.body of
           Right json -> case JSON.decodeJson json >>= (\o -> JSON.getField o "access_token") >>= JSON.decodeJson of
             Left err -> Left err
-            Right tok -> Right $ LoginToken tok
+            Right tok -> Right $ {token:LoginToken tok, homeserver:homeserver}
           _ -> Left "Server returned invalid JSON."
         (StatusCode 401) -> Left "Authentication failed, please verify credentials."
         _ -> Left $ "Unexpected server response HTTP " <> show (response.statusText)
@@ -122,36 +118,24 @@ pollSyncOnce si since = do
         Right x -> pure x
     _ -> throwError $ EE.error resp.statusText
 
-flattenArrayStream :: forall a. Stream (Array a) -> Now (Stream a)
-flattenArrayStream input = do
-  ss <- liftEffect sinkStream'
-  liftEffect $ subscribe (foldMap (\x -> pushSink x ss.sink)) input
-  pure ss.stream
+-- flattenArrayStream :: forall a. Stream (Array a) -> Now (Stream a)
+-- flattenArrayStream input = do
+--   ss <- liftEffect sinkStream'
+--   liftEffect $ subscribe (foldMap (\x -> pushSink x ss.sink)) input
+--   pure ss.stream
 
-longpollStream :: SessionInfo -> Now (Stream SyncPollResult)
-longpollStream si = do
-  str <- liftEffect $ sinkStream'
-  let
-    pollIter :: Maybe String -> Aff Void
-    pollIter since =
-      catchError
-        ( do
-            upd <- pollSyncOnce si since
-            liftEffect $ pushSink upd str.sink
-            pollIter $ Just upd.next_batch
-        )
-        (\e -> do
-          liftEffect $ Console.error ("Sync poll failed: " <> message e)
-          delay (Milliseconds (toNumber 1000))
-          pollIter $ since)
-  --pollIter
-  _ <- runAffNow (pollIter Nothing)
-  pure str.stream
+-- data SyncPollUpdate = SyncPollUpdate SyncPollResult (Aff SyncPollUpdate)
 
--- type ChannelJoined = { channel_id :: String
--- , channel_events :: Stream (Event MatrixRoomEvent)}
-
--- longpollToFRP :: SessionInfo -> Now { joined_rooms :: Behavior (Map String RoomData) }
+pollSyncProducer :: SessionInfo -> (SyncPollResult -> Aff Unit) -> Aff Unit
+pollSyncProducer si callback = 
+  let 
+    pollLoop :: Maybe String -> Aff Unit
+    pollLoop since = do
+      res <- pollSyncOnce si since 
+      callback res
+      pollLoop $ Just res.next_batch
+  in
+    pollLoop Nothing
 
 sendMessage :: SessionInfo -> String -> String -> Aff Unit
 sendMessage si roomId body = do

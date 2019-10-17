@@ -2,9 +2,6 @@ body {
     margin: 0;
     font-size: 10pt;
     font-family: sans-serif;
-}
-
-#mount {
     display: flex;
     flex-direction: row;
     position: absolute;
@@ -14,7 +11,7 @@ body {
     bottom: 0;
 }
 
-#mount .room-view {
+body .room-view {
     flex-grow: 1;
 }
 

@@ -2,26 +2,37 @@ module Main where
 
 import Prelude
 
-import Data.Foldable (for_)
-import Data.String as S
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
-import Specular.Dom.Builder.Class (text)
+import Purechat.LoginComponent (loginForm)
+import Purechat.Types (SessionInfo)
 import Specular.Dom.Widget (class MonadWidget, runMainWidgetInBody)
-import Specular.Dom.Widgets.Input (textInput, textInputValue)
-import Specular.FRP (dynamic_, never)
-import Specular.FRP.List (dynamicListWithIndex_)
+import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic, foldDyn, never, switch)
+import Specular.FRP.Fix (fixFRP_)
+import Purechat.Purechat (primaryView)
 
-mainWidget :: forall m. MonadWidget m => m Unit
-mainWidget = do
+loginThenMain :: forall m. MonadWidget m => MonadFRP m => m Unit
+loginThenMain = 
+  let 
+    -- showPage :: forall m. MonadWidget m => Maybe SessionInfo -> m (Event SessionInfo)
+    showPage s =
+      case s of
+        Nothing -> 
+          loginForm
+        Just sess -> do
+          primaryView sess
+          pure never
 
-  ti <- textInput { initialValue : "Hello world!", setValue : never, attributes : pure mempty }
-
-  let the_string = textInputValue ti
-
-  dynamicListWithIndex_ (map (map S.singleton <<< S.toCodePointArray) the_string) 
-    (\idx strDyn -> dynamic_ $ text<$>strDyn )
-
-  pure unit
-
+    -- loop :: forall m. MonadWidget m => MonadFRP m => Event SessionInfo -> m (Event SessionInfo)
+    loop sessionUpdate = do
+      sess :: Dynamic (Maybe SessionInfo) <- foldDyn (\l _ -> Just l) Nothing sessionUpdate
+      events :: Dynamic (Event SessionInfo) <- dynamic (showPage <$> sess)
+      pure $ switch events
+  in
+    fixFRP_ loop
+      
+  
+  
+  
 main :: Effect Unit
-main = runMainWidgetInBody mainWidget
+main = runMainWidgetInBody loginThenMain

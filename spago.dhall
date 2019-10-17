@@ -3,7 +3,7 @@ Welcome to a Spago project!
 You can edit this file as you like.
 -}
 { name =
-    "my-project"
+    "Purechat"
 , dependencies =
     [ "affjax"
     , "argonaut"
@@ -16,8 +16,6 @@ You can edit this file as you like.
     , "numbers"
     , "profunctor-lenses"
     , "psci-support"
-    , "signal"
-    , "turbine"
     , "uuid"
     , "web-storage"
     , "specular"

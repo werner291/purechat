@@ -4,3 +4,6 @@ dist/
 .cache/
 .spago/
 .psc-ide-port
+experiments/
+package.json
+package-lock.json

@@ -61,3 +61,5 @@ unToken (LoginToken tok) = tok
 
 instance tokenShow :: Show LoginToken where
   show (LoginToken lt) = "API auth token: " <> lt
+
+  
