@@ -5,7 +5,7 @@ import Prelude
 import Data.Argonaut (class DecodeJson, Json, decodeJson, getField, (.:))
 import Data.Either (Either(..))
 
-type Event a
+type MatrixEvent a
   = { event_id :: String
     , sender :: String
     , content :: Either String a
@@ -27,7 +27,7 @@ instance matrixRoomEventMatrixEventType :: MatrixEventType MatrixRoomEvent where
 -- | Note that, if the event type is unrecognized or the "content" field of the event
 -- | fails to decode, an event with a Left "content" field is generated to stop individual
 -- | events from causing the entire decode to fail.
-decodeRoomEvent :: Json -> Either String (Event MatrixRoomEvent)
+decodeRoomEvent :: Json -> Either String (MatrixEvent MatrixRoomEvent)
 decodeRoomEvent json = do
   o <- decodeJson json
   event_id <- o .: "event_id"
@@ -47,7 +47,7 @@ decodeRoomEvent json = do
 -- | Record describing all available and known information about a room.
 type RoomData
   = { timeline ::
-      { events :: Array (Event MatrixRoomEvent)
+      { events :: Array (MatrixEvent MatrixRoomEvent)
       }
     }
 
