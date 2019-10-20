@@ -3,53 +3,28 @@ module Purechat.Purechat (primaryView) where
 
 import Prelude
 
-import API (SyncPollResult, pollSyncProducer)
-import Data.Array as Array
 import Data.Map (Map)
 import Data.Map as Map
-import Data.Tuple (Tuple(..))
-import Effect.Class (liftEffect)
-import Purechat.Types (SessionInfo, RoomData)
-import Specular.Dom.Browser (Attrs)
-import Specular.Dom.Builder.Class (domEventWithSample, el, elAttr', text)
+import Data.Maybe (Maybe(..))
+import Purechat.ChannelDirectoryWidget (channelDirectory)
+import Purechat.ServerFeed (serverState)
+import Purechat.Types (RoomData, RoomId, SessionInfo)
+import RoomWidget (roomView)
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic, dynamic_, foldDyn, leftmost, newEvent, switch)
-import Specular.FRP.Async (startAff)
-import Specular.FRP.List (dynamicList, dynamicList_)
-
-syncFeed :: forall m. MonadFRP m => SessionInfo -> m (Event SyncPollResult) 
-syncFeed si = do
-    evt <- newEvent
-    startAff $ pollSyncProducer si (\update -> liftEffect $ evt.fire update)
-    pure evt.event
-
-serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (Map String RoomData)) 
-serverState si = do
-    let combine updt rooms = Map.unionWith (<>) rooms (updt.rooms.join)
-    feed <- syncFeed si
-    foldDyn combine (Map.empty) feed
-
-elemOnClick :: forall m. MonadWidget m => String -> Attrs -> m Unit -> m (Event Unit)
-elemOnClick tagName attrs inner = do
-  Tuple node _ <- elAttr' tagName attrs inner
-  domEventWithSample (\_ -> pure unit) "click" node
-
+import Specular.FRP (class MonadFRP, Dynamic, dynamic_, holdDyn)
+    
+-- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> m Unit
 primaryView si = do
-    st :: Dynamic (Map String RoomData) <- serverState si
-    
-    let clickableLi :: (Tuple String RoomData) -> m (Event String)
-        clickableLi (Tuple rId rd) = do
-            clicks :: Event Unit <- elemOnClick "li" mempty $ text rId
-            pure $ const rId <$> clicks
-        viewrow :: Dynamic (Tuple String RoomData) -> m (Event String)
-        viewrow d = switch <$> dynamic (d <#> clickableLi)
+    -- Keep a list of channels the user has currently joined
+    joined_channels :: Dynamic (Map RoomId RoomData) <- serverState si
 
-    channelPicked :: Event String <- (switch <<< map leftmost) <$> el "ul" (dynamicList (Map.toUnfoldable <$> st) $ viewrow)
+    channelPicked <- channelDirectory joined_channels
 
-    selectedChannels :: Dynamic (Array String) <- foldDyn Array.cons mempty channelPicked
+    -- TODO : Make some kind of multi-window view. Should be easy enough by
+    --        just making multiple sub-components here...
+    currentChannel <- holdDyn Nothing (Just <$> channelPicked)
 
-    el "ul" (dynamicList_ selectedChannels (\dynName -> dynamic_ ((el "li"  <<< text) <$> dynName)))
-
-     -- (entryD <#> (\(Tuple rId rd) -> text rId))
-  
+    dynamic_ $ currentChannel <#> \rId -> case rId of
+      Just rid -> roomView si rid (Map.lookup rid <$> joined_channels)
+      Nothing -> pure unit

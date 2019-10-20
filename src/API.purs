@@ -19,9 +19,10 @@ import Affjax.StatusCode (StatusCode(..))
 import Data.Argonaut (Json, decodeJson, getField, (.:), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
+import Data.FoldableWithIndex (foldlWithIndex)
 import Data.HTTP.Method (Method(..))
 import Data.Map (Map)
-import Data.Map (fromFoldableWithIndex) as Map
+import Data.Map (empty, insert) as Map
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
 import Data.Traversable (traverse)
@@ -30,7 +31,7 @@ import Effect.Aff (Aff, Error, error, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), RoomData, SessionInfo, decodeRoomEvent)
+import Purechat.Types (LoginToken(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
 
 -- | Turns a nested `Either Error (Either String a)` into `Either String a`
 -- | by extracting the error message.
@@ -70,7 +71,7 @@ tryLogin username password homeserver = do
 -- | that is to be merged with our current view of the server data.
 type SyncPollResult
   = { rooms ::
-      { join :: Map String RoomData
+      { join :: Map RoomId RoomData
       }
     , next_batch :: String
     }
@@ -85,21 +86,18 @@ decodeRoom json = do
     { timeline: { events }
     }
 
+-- Essentially a JsonDecode instance for SyncPollResult, 
+-- except we currently don't use a custom type for this.
 decodePollResult :: Json -> Either String SyncPollResult
 decodePollResult json = do
   obj <- decodeJson json
   rooms <- obj .: "rooms"
   joinedRooms <- getField rooms "join"
-  decJoinedRooms <- traverse decodeRoom $ Map.fromFoldableWithIndex (joinedRooms :: Object Json)
+  decJoinedRooms :: Map RoomId RoomData <- traverse decodeRoom $ foldlWithIndex (\k acc a -> Map.insert (RoomId k) a acc) Map.empty (joinedRooms :: Object Json)
   next_batch <- obj .: "next_batch"
   pure { rooms: { join: decJoinedRooms }, next_batch }
 
--- instance syncPollJson :: DecodeJson SyncPollResult where
---   decodeJson json = do
---     obj <- decodeJson json
---     account_data <- getField obj "account_data"
---     pure { account_data
---     }
+
 pollSyncOnce :: SessionInfo -> Maybe String -> Aff SyncPollResult
 pollSyncOnce si since = do
   resp <-
@@ -118,14 +116,6 @@ pollSyncOnce si since = do
         Right x -> pure x
     _ -> throwError $ EE.error resp.statusText
 
--- flattenArrayStream :: forall a. Stream (Array a) -> Now (Stream a)
--- flattenArrayStream input = do
---   ss <- liftEffect sinkStream'
---   liftEffect $ subscribe (foldMap (\x -> pushSink x ss.sink)) input
---   pure ss.stream
-
--- data SyncPollUpdate = SyncPollUpdate SyncPollResult (Aff SyncPollUpdate)
-
 pollSyncProducer :: SessionInfo -> (SyncPollResult -> Aff Unit) -> Aff Unit
 pollSyncProducer si callback = 
   let 
@@ -137,7 +127,8 @@ pollSyncProducer si callback =
   in
     pollLoop Nothing
 
-sendMessage :: SessionInfo -> String -> String -> Aff Unit
+-- Send a string message into a room with a given ID
+sendMessage :: SessionInfo -> RoomId -> String -> Aff Unit
 sendMessage si roomId body = do
 
   txnId <- liftEffect $ UUID.genUUID
@@ -150,7 +141,7 @@ sendMessage si roomId body = do
     url =
       si.homeserver
         <> "/_matrix/client/r0/rooms/"
-        <> roomId
+        <> (unRoomId roomId)
         <> "/send/m.room.message/"
         <> (UUID.toString txnId)
   
