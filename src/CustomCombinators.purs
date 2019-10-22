@@ -4,12 +4,12 @@ module CustomCombinators where
 import Prelude
 
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, jsonParser, stringify)
-import Data.Either (fromLeft, fromRight)
+import Data.Either (fromRight)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
-import Partial.Unsafe (unsafePartial, unsafePartialBecause)
+import Partial.Unsafe (unsafePartialBecause)
 import Specular.Dom.Browser (TagName)
 import Specular.Dom.Builder.Class (elAttr)
 import Specular.Dom.Widget (class MonadWidget)
@@ -46,17 +46,3 @@ localStorageJsonDynamic key stor updt = do
         unsafeDecode s = unsafePartialBecause "Values should only be able to get in local storage if they're the result of a JSON stringify operation. If not, something is seriously wrong." $ fromRight $ (jsonParser s >>= decodeJson)
     stringStored :: Dynamic (Maybe String) <- localStorageDynamic key stor encodedUpdates
     pure $ map unsafeDecode <$> stringStored
-
--- | A variant of the `stepper` combinator that is initialized with a Storage value.
--- | Whenever the signal produces a value, that value is stored to the Storage.
--- | A value of Nothing will delete the stored value.
-    -- storageStepper :: String -> Storage -> Stream (Maybe String) -> Now (Behavior (Maybe String))
-    -- storageStepper key storage updateSig = do
-    --   initial <-
-    --     liftEffect $ do
-    --         let
-    --             storeX (Just x) = setItem key x storage
-    --             storeX Nothing = removeItem key storage
-    --         subscribe storeX updateSig
-    --         getItem key storage
-    --   stepper initial updateSig

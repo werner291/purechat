@@ -6,6 +6,7 @@ import Prelude
 import CustomCombinators (elClass)
 import Data.Map (Map)
 import Data.Map as Map
+import Data.Maybe (fromMaybe)
 import Data.Tuple (Tuple(..))
 import Purechat.Types (RoomData, RoomId, unRoomId)
 import Specular.Dom.Browser (Attrs)
@@ -29,7 +30,7 @@ channelDirectory joined_channels =
         let 
             clickableLi :: (Tuple RoomId RoomData) -> m (Event RoomId)
             clickableLi (Tuple rId rd) = do
-                clicks :: Event Unit <- elemOnClick "li" mempty $ text (unRoomId rId)
+                clicks :: Event Unit <- elemOnClick "li" mempty $ text (fromMaybe (unRoomId rId) rd.state.display_name)
                 pure $ const rId <$> clicks
             viewrow :: Dynamic (Tuple RoomId RoomData) -> m (Event RoomId)
             viewrow d = switch <$> dynamic (d <#> clickableLi)
