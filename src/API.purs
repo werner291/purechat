@@ -4,8 +4,7 @@ module API
   , pollSyncOnce
   , pollSyncProducer
   , SyncPollResult
-  -- , longpollStream
-  -- , flattenArrayStream
+  , RoomUpdate
   , sendMessage
   ) where
 
@@ -31,7 +30,7 @@ import Effect.Aff (Aff, Error, error, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
+import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
 
 -- | Turns a nested `Either Error (Either String a)` into `Either String a`
 -- | by extracting the error message.
@@ -71,19 +70,25 @@ tryLogin username password homeserver = do
 -- | that is to be merged with our current view of the server data.
 type SyncPollResult
   = { rooms ::
-      { join :: Map RoomId RoomData
+      { join :: Map RoomId RoomUpdate
       }
     , next_batch :: String
     }
 
-decodeRoom :: Json -> Either String RoomData
-decodeRoom json = do
+-- A set of updates specifically pertaining to one room.
+type RoomUpdate = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
+                  , new_state_events :: Array (MatrixEvent MatrixRoomEvent) }
+
+decodeRoomUpdate :: Json -> Either String RoomUpdate
+decodeRoomUpdate json = do
   o <- decodeJson json
   timeline <- o .: "timeline"
-  events_json <- timeline .: "events"
-  events <- traverse decodeRoomEvent events_json
+  new_timeline_events <- traverse decodeRoomEvent =<< timeline .: "events"
+  state <- o .: "state"
+  new_state_events <- traverse decodeRoomEvent =<< state .: "events"
   pure
-    { timeline: { events }
+    { new_timeline_events
+    , new_state_events
     }
 
 -- Essentially a JsonDecode instance for SyncPollResult, 
@@ -93,7 +98,7 @@ decodePollResult json = do
   obj <- decodeJson json
   rooms <- obj .: "rooms"
   joinedRooms <- getField rooms "join"
-  decJoinedRooms :: Map RoomId RoomData <- traverse decodeRoom $ foldlWithIndex (\k acc a -> Map.insert (RoomId k) a acc) Map.empty (joinedRooms :: Object Json)
+  decJoinedRooms :: Map RoomId RoomUpdate <- traverse decodeRoomUpdate $ foldlWithIndex (\k acc a -> Map.insert (RoomId k) a acc) Map.empty (joinedRooms :: Object Json)
   next_batch <- obj .: "next_batch"
   pure { rooms: { join: decJoinedRooms }, next_batch }
 
@@ -103,7 +108,7 @@ pollSyncOnce si since = do
   resp <-
     AX.request
       ( AX.defaultRequest
-          { url = (si.homeserver <> "/_matrix/client/r0/sync" <> (Maybe.fromMaybe "" $ map (\x -> "?timeout=30000&since=" <> x) since))
+          { url = (si.homeserver <> "/_matrix/client/r0/sync" <> (Maybe.fromMaybe "?full_state=true" $ map (\x -> "?timeout=30000&since=" <> x) since))
           , responseFormat = AXRF.json
           , headers = [ RequestHeader "Authorization" ("Bearer " <> ((\(LoginToken tok) -> tok) si.token)) ]
           }

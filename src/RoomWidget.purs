@@ -5,24 +5,38 @@ import Prelude
 import API (sendMessage)
 import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
 import Foreign.Object as Object
-import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, SessionInfo, unRoomId)
-import Specular.Dom.Builder.Class (elAttr, text)
+import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
+import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.Dom.Widgets.Input (textareaOnChange)
-import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, holdDyn, tagDyn)
+import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
+import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, fixFRP, holdDyn, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 
+divClass :: forall m a. MonadWidget m => String -> m a -> m a
+divClass cls content = elAttr "div" (Object.fromFoldable [Tuple "class" cls]) content
+
+textareaOnChangeWithReset :: forall m. MonadWidget m => Event Unit -> m (Dynamic String)
+textareaOnChangeWithReset reset = do
+  Tuple node _ <- el' "textarea" (pure unit)
+  changed <- domEventWithSample (\_ -> getTextInputValue node) "change" node
+  subscribeEvent_ (\_ -> setTextInputValue node "") reset
+  holdDyn "" changed
+
 composeMessageWidget :: forall m. MonadWidget m => m (Event String)
-composeMessageWidget = do
-    
-    composeMessage <- textareaOnChange "" mempty
-    sendBtnClicked <- buttonOnClick (pure mempty) (text "Send")
-    pure $ tagDyn composeMessage sendBtnClicked
+composeMessageWidget = 
+    let loop :: forall mm. MonadWidget mm => MonadFRP mm => Event Unit -> mm (Tuple (Event Unit) (Event String))
+        loop reset = do
+            composeMessage :: Dynamic String <- textareaOnChangeWithReset reset
+            sendBtnClicked :: Event Unit <- buttonOnClick (pure mempty) (text "Send")
+            let outbox = tagDyn composeMessage sendBtnClicked
+                resetOut = const unit <$> outbox
+            pure $ Tuple resetOut outbox
+    in divClass "message-form" $ fixFRP loop
 
 viewEvent :: forall m. MonadWidget m => MatrixEvent MatrixRoomEvent -> m Unit
 viewEvent evt = 
@@ -32,12 +46,22 @@ viewEvent evt =
             case evt.content of
                 Left errMsg -> text errMsg
                 Right (Message {body}) -> text body
+                Right (Membership {displayname, membership}) -> text $ 
+                    case membership of Joined -> displayname <> " joined the room."
+                Right (RoomName n) -> text $ evt.sender <> " set the room's name to " <> n
+                Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
+                Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
 
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic RoomData -> m Unit
 joinedRoomView si rId rd = do
 
-    elAttr "div" (Object.fromFoldable [Tuple "class" "messages"]) $ 
+    -- Show the room name. Possibly in the future, add 
+    -- possibility of clicking to enable typing in a room ID
+    elAttr "div" (Object.fromFoldable [Tuple "class" "room-name"]) $dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+
+
+    elAttr "div" (Object.fromFoldable [Tuple "class" "room-messages"]) $ 
         dynamicList_ ((_.timeline.events) <$> rd) $ \devt -> dynamic_ $ devt <#> viewEvent
 
     msg <- composeMessageWidget
@@ -55,11 +79,6 @@ roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dy
 roomView si rId mrd = 
     elAttr "div" (Object.fromFoldable [Tuple "class" "room-view"]) $ do
     
-
-        -- Show the room name. Possibly in the future, add 
-        -- possibility of clicking to enable typing in a room ID
-        text (unRoomId rId)
-
         -- We use 2 separate dynamic widgets here to avoid re-creating 
         -- the joined room view every time we get a new message
         dynamicList_ (Array.fromFoldable <$> mrd) (joinedRoomView si rId)
