@@ -1,18 +1,20 @@
 module RoomWidget (roomView, joinedRoomView) where
 
 import Prelude
+
 import API (sendMessage)
 import CustomCombinators (elClass)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
+import Foreign.Object (empty)
 import Foreign.Object as Object
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
-import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
+import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
+import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue, textInputOnInput)
 import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, fixFRP, holdDyn, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
@@ -62,7 +64,10 @@ joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId
 joinedRoomView si rId rd = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
-  elClass "div" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+  elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+
+  elClass "hr" "roomname-content-set" (pure unit)
+
   elClass "div" "room-messages"
     $ dynamicList_ ((_.timeline.events) <$> rd)
     $ \devt -> dynamic_ $ devt <#> viewEvent
@@ -78,12 +83,12 @@ joinedRoomView si rId rd = do
 -- for this widget/ The room view widget can function independently from the directory.
 roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic (Maybe RoomData) -> m Unit
 roomView si rId mrd =
-  elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ])
-    $ do
-        -- We use 2 separate dynamic widgets here to avoid re-creating 
-        -- the joined room view every time we get a new message
-        dynamicList_ (Array.fromFoldable <$> mrd) (joinedRoomView si rId)
-        dynamic_ $ mrd
-          <#> \rd -> case rd of
-              Just _ -> pure unit
-              Nothing -> buttonOnClick (pure mempty) (text "Join room") >>= const (pure unit)
+  elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ]) $ do
+
+    -- We use 2 separate dynamic widgets here to avoid re-creating 
+    -- the joined room view every time we get a new message
+    dynamicList_ (Array.fromFoldable <$> mrd) (joinedRoomView si rId)
+    dynamic_ $ mrd
+        <#> \rd -> case rd of
+            Just _ -> pure unit
+            Nothing -> buttonOnClick (pure mempty) (text "Join room") >>= const (pure unit)

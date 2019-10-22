@@ -1,6 +1,8 @@
 module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
+
+import Foreign.Object (empty)
 import CustomCombinators (elClass)
 import Data.Map (Map)
 import Data.Map as Map
@@ -10,6 +12,7 @@ import Purechat.Types (RoomData, RoomId, unRoomId)
 import Specular.Dom.Browser (Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, el, elAttr', text)
 import Specular.Dom.Widget (class MonadWidget)
+import Specular.Dom.Widgets.Input (textInputOnInput)
 import Specular.FRP (Dynamic, Event, dynamic, leftmost, switch)
 import Specular.FRP.List (dynamicList)
 
@@ -23,8 +26,8 @@ elemOnClick tagName attrs inner = do
 -- Returns an Event stream of room IDs
 channelDirectory :: forall m. MonadWidget m => Dynamic (Map RoomId RoomData) -> m (Event RoomId)
 channelDirectory joined_channels =
-  elClass "div" "channel-directory"
-    $ do
+  elClass "div" "channel-directory" do
+        search <- textInputOnInput "" empty
         let
           clickableLi :: (Tuple RoomId RoomData) -> m (Event RoomId)
           clickableLi (Tuple rId rd) = do
