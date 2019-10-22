@@ -2,7 +2,7 @@ module Purechat.Types where
 
 import Prelude
 
-import Data.Argonaut (class DecodeJson, Json, decodeJson, getField, (.:))
+import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, (.:))
 import Data.Either (Either(..))
 import Data.Map (Map)
 import Data.Maybe (Maybe(..))
@@ -111,6 +111,15 @@ unToken (LoginToken tok) = tok
 
 instance tokenShow :: Show LoginToken where
   show (LoginToken lt) = "API auth token: " <> lt
+
+instance decodeToken :: DecodeJson LoginToken where
+  decodeJson :: Json -> Either String LoginToken
+  decodeJson j = do
+    t :: String <- decodeJson j
+    pure (LoginToken t)
+
+instance encodeToken :: EncodeJson LoginToken where
+  encodeJson (LoginToken t) = encodeJson t
 
 ------------------
 -- RoomId stuff --

@@ -3,6 +3,7 @@ module RoomWidget (roomView, joinedRoomView) where
 import Prelude
 
 import API (sendMessage)
+import CustomCombinators (elClass)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -58,10 +59,9 @@ joinedRoomView si rId rd = do
 
     -- Show the room name. Possibly in the future, add 
     -- possibility of clicking to enable typing in a room ID
-    elAttr "div" (Object.fromFoldable [Tuple "class" "room-name"]) $dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+    elClass "div" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
 
-
-    elAttr "div" (Object.fromFoldable [Tuple "class" "room-messages"]) $ 
+    elClass "div" "room-messages" $ 
         dynamicList_ ((_.timeline.events) <$> rd) $ \devt -> dynamic_ $ devt <#> viewEvent
 
     msg <- composeMessageWidget

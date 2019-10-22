@@ -2,14 +2,19 @@ module Main where
 
 import Prelude
 
+import CustomCombinators (localStorageJsonDynamic)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
+import Effect.Class (liftEffect)
 import Purechat.LoginComponent (loginForm)
+import Purechat.Purechat (primaryView)
 import Purechat.Types (SessionInfo)
 import Specular.Dom.Widget (class MonadWidget, runMainWidgetInBody)
 import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic, foldDyn, never, switch)
 import Specular.FRP.Fix (fixFRP_)
-import Purechat.Purechat (primaryView)
+import Web.HTML (window)
+import Web.HTML.Window (localStorage)
+import Web.Storage.Storage (Storage)
 
 loginThenMain :: forall m. MonadWidget m => MonadFRP m => m Unit
 loginThenMain = 
@@ -25,7 +30,8 @@ loginThenMain =
 
     -- loop :: forall m. MonadWidget m => MonadFRP m => Event SessionInfo -> m (Event SessionInfo)
     loop sessionUpdate = do
-      sess :: Dynamic (Maybe SessionInfo) <- foldDyn (\l _ -> Just l) Nothing sessionUpdate
+      storage :: Storage <- liftEffect $ window >>= localStorage
+      sess :: Dynamic (Maybe SessionInfo) <- localStorageJsonDynamic "session" storage (Just <$> sessionUpdate)
       events :: Dynamic (Event SessionInfo) <- dynamic (showPage <$> sess)
       pure $ switch events
   in
