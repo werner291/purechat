@@ -124,11 +124,13 @@ instance encodeToken :: EncodeJson LoginToken where
 ------------------
 -- RoomId stuff --
 ------------------
-newtype RoomId
-  = RoomId String
+newtype RoomId = RoomId String
 
 unRoomId :: RoomId -> String
 unRoomId (RoomId s) = s
+
+mkRoomId :: String -> RoomId
+mkRoomId s = RoomId s
 
 derive instance roomIdEq :: Eq RoomId
 

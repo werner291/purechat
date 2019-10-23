@@ -6,10 +6,12 @@ module API
   , SyncPollResult
   , RoomUpdate
   , sendMessage
+  , tryJoinRoom
   ) where
 
 import Prelude
 
+import Affjax (ResponseFormatError(..), Response)
 import Affjax as AX
 import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
@@ -132,6 +134,25 @@ pollSyncProducer si callback =
   in
     pollLoop Nothing
 
+authHeader :: SessionInfo -> RequestHeader
+authHeader si = RequestHeader "Authorization" ("Bearer " <> ((\(LoginToken tok) -> tok) si.token))
+
+pathToUri :: SessionInfo -> String -> String
+pathToUri si path = si.homeserver <> path
+
+postJsonAuthed :: SessionInfo -> String -> Json -> Aff (Response (Either ResponseFormatError Json))
+postJsonAuthed si path body = AX.request 
+  ( AX.defaultRequest
+      { url = pathToUri si path
+      , responseFormat = AXRF.json
+      , headers = [ authHeader si ]
+      , method = Left PUT
+      , content = Just (RB.json body)
+      }
+  )
+
+
+
 -- Send a string message into a room with a given ID
 sendMessage :: SessionInfo -> RoomId -> String -> Aff Unit
 sendMessage si roomId body = do
@@ -141,25 +162,16 @@ sendMessage si roomId body = do
   let
     reqBody :: JSON.Json
     reqBody = ("msgtype" := "m.text" ~> "body" := body ~> JSON.jsonEmptyObject)
+    path = "/_matrix/client/r0/rooms/" <> (unRoomId roomId) <> "/send/m.room.message/" <> (UUID.toString txnId)
 
-    url :: String
-    url =
-      si.homeserver
-        <> "/_matrix/client/r0/rooms/"
-        <> (unRoomId roomId)
-        <> "/send/m.room.message/"
-        <> (UUID.toString txnId)
-  
-  resp <- AX.request 
-          ( AX.defaultRequest
-              { url = url
-              , responseFormat = AXRF.json
-              , headers = [ RequestHeader "Authorization" ("Bearer " <> ((\(LoginToken tok) -> tok) si.token)) ]
-              , method = Left PUT
-              , content = Just (RB.json reqBody)
-              }
-          )
-  
+  postJsonAuthed si path reqBody >>= responseOkOrBust
+
+responseOkOrBust :: Response (Either ResponseFormatError Json) -> Aff Unit
+responseOkOrBust resp = 
   case resp.status of
     (StatusCode 200) -> pure unit
     _ -> throwError (error resp.statusText)
+
+tryJoinRoom :: SessionInfo -> String -> Aff Unit
+tryJoinRoom si rIdOrAlias = 
+  postJsonAuthed si ("/_matrix/client/r0/join/" <> rIdOrAlias) JSON.jsonEmptyObject >>= responseOkOrBust

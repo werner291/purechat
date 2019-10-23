@@ -3,20 +3,22 @@ module RoomWidget (roomView, joinedRoomView) where
 import Prelude
 
 import API (sendMessage)
+import API as API
 import CustomCombinators (elClass)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
-import Foreign.Object (empty)
+import Effect.Aff (Aff, Error, message)
+import Effect.Aff as Aff
 import Foreign.Object as Object
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
 import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue, textInputOnInput)
+import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
 import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, fixFRP, holdDyn, subscribeEvent_, tagDyn)
-import Specular.FRP.Async (asyncRequestMaybe)
+import Specular.FRP.Async (RequestState(..), asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 
 divClass :: forall m a. MonadWidget m => String -> m a -> m a
@@ -76,6 +78,27 @@ joinedRoomView si rId rd = do
   result <- asyncRequestMaybe currentRequest
   pure unit
 
+joinRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
+joinRoomView si rId = do
+  
+  el "p" $ text ("You are currently not participating in room " <> (unRoomId rId) <> " would you like to join it?")
+  
+  tryJoin <- buttonOnClick (pure mempty) (text "Join room")
+
+  let 
+    joinAttempts :: Event (Aff (Either Error Unit))
+    joinAttempts = tryJoin <#> \_ -> Aff.try $ API.tryJoinRoom si (unRoomId rId)
+
+  joinRequestStatus <- asyncRequestMaybe =<< holdDyn Nothing (map Just joinAttempts)
+
+  dynamic_ $ joinRequestStatus <#> \status -> case status of
+    NotRequested -> pure unit
+    Loading -> text "Joining room..."
+    Loaded (Left e) -> text $ "Failed to join room: " <> (message e)
+    Loaded (Right _) -> text $ "Room successfully joined! Loading room view...: "
+
+  pure unit
+
 -- A single "room view". Think of this as a browser tab with an address bar that can show any
 -- accessible room in the Matrix federation. Note that this widget is applicable regardless of
 -- join status. If the user is not in the room, they will be shown join/invite options instead.
@@ -91,4 +114,4 @@ roomView si rId mrd =
     dynamic_ $ mrd
         <#> \rd -> case rd of
             Just _ -> pure unit
-            Nothing -> buttonOnClick (pure mempty) (text "Join room") >>= const (pure unit)
+            Nothing -> joinRoomView si rId
