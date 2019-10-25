@@ -4,6 +4,7 @@ module CustomCombinators where
 import Prelude
 
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, jsonParser, stringify)
+import Data.Array as Array
 import Data.Either (fromRight)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
@@ -13,7 +14,8 @@ import Partial.Unsafe (unsafePartialBecause)
 import Specular.Dom.Browser (TagName)
 import Specular.Dom.Builder.Class (elAttr)
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, holdDyn, sampleAt, subscribeEvent_)
+import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, dynamic_, holdDyn, sampleAt, subscribeEvent_)
+import Specular.FRP.List (dynamicList, dynamicList_)
 import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
 
 -- | Fires an event with the current value of the behavior 
@@ -46,3 +48,16 @@ localStorageJsonDynamic key stor updt = do
         unsafeDecode s = unsafePartialBecause "Values should only be able to get in local storage if they're the result of a JSON stringify operation. If not, something is seriously wrong." $ fromRight $ (jsonParser s >>= decodeJson)
     stringStored :: Dynamic (Maybe String) <- localStorageDynamic key stor encodedUpdates
     pure $ map unsafeDecode <$> stringStored
+
+dynamicMaybe :: forall a b m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m b) -> m (Dynamic (Maybe b))
+dynamicMaybe dm mkJ = do
+    listRes :: Dynamic (Array b) <- dynamicList (Array.fromFoldable <$> dm) mkJ
+    pure $ Array.head <$> listRes
+
+dynamicMaybe_ :: forall a m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m Unit) -> (Unit -> m Unit) -> m Unit
+dynamicMaybe_ dm mkJ mkN = do
+    dynamicList_ (Array.fromFoldable <$> dm) mkJ
+    dynamic_ $ dm
+        <#> \m -> case m of
+            Just _ -> pure unit
+            Nothing -> mkN unit

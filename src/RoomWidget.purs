@@ -19,7 +19,7 @@ import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
 import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, fixFRP, holdDyn, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe)
-import Specular.FRP.List (dynamicList_)
+import Specular.FRP.List (dynamicList, dynamicList_)
 
 divClass :: forall m a. MonadWidget m => String -> m a -> m a
 divClass cls content = elAttr "div" (Object.fromFoldable [ Tuple "class" cls ]) content
@@ -68,6 +68,8 @@ joinedRoomView si rId rd = do
   -- possibility of clicking to enable typing in a room ID
   elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
 
+  leave <- buttonOnClick (pure Object.empty) $ text "Leave room"
+
   elClass "hr" "roomname-content-set" (pure unit)
 
   elClass "div" "room-messages"
@@ -99,6 +101,19 @@ joinRoomView si rId = do
 
   pure unit
 
+dynamicMaybe :: forall a b m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m b) -> m (Dynamic (Maybe b))
+dynamicMaybe dm mkJ = do
+  listRes :: Dynamic (Array b) <- dynamicList (Array.fromFoldable <$> dm) mkJ
+  pure $ Array.head <$> listRes
+
+dynamicMaybe_ :: forall a m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m Unit) -> (Unit -> m Unit) -> m Unit
+dynamicMaybe_ dm mkJ mkN = do
+  dynamicList_ (Array.fromFoldable <$> dm) mkJ
+  dynamic_ $ dm
+      <#> \m -> case m of
+          Just _ -> pure unit
+          Nothing -> mkN unit
+
 -- A single "room view". Think of this as a browser tab with an address bar that can show any
 -- accessible room in the Matrix federation. Note that this widget is applicable regardless of
 -- join status. If the user is not in the room, they will be shown join/invite options instead.
@@ -110,8 +125,9 @@ roomView si rId mrd =
 
     -- We use 2 separate dynamic widgets here to avoid re-creating 
     -- the joined room view every time we get a new message
-    dynamicList_ (Array.fromFoldable <$> mrd) (joinedRoomView si rId)
-    dynamic_ $ mrd
-        <#> \rd -> case rd of
-            Just _ -> pure unit
-            Nothing -> joinRoomView si rId
+    -- dynamicList_ (Array.fromFoldable <$> mrd) (joinedRoomView si rId)
+    -- dynamic_ $ mrd
+    --     <#> \rd -> case rd of
+    --         Just _ -> pure unit
+    --         Nothing -> joinRoomView si rId
+    dynamicMaybe_ mrd (joinedRoomView si rId) (const (pure unit))
