@@ -101,19 +101,6 @@ joinRoomView si rId = do
 
   pure unit
 
-dynamicMaybe :: forall a b m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m b) -> m (Dynamic (Maybe b))
-dynamicMaybe dm mkJ = do
-  listRes :: Dynamic (Array b) <- dynamicList (Array.fromFoldable <$> dm) mkJ
-  pure $ Array.head <$> listRes
-
-dynamicMaybe_ :: forall a m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m Unit) -> (Unit -> m Unit) -> m Unit
-dynamicMaybe_ dm mkJ mkN = do
-  dynamicList_ (Array.fromFoldable <$> dm) mkJ
-  dynamic_ $ dm
-      <#> \m -> case m of
-          Just _ -> pure unit
-          Nothing -> mkN unit
-
 -- A single "room view". Think of this as a browser tab with an address bar that can show any
 -- accessible room in the Matrix federation. Note that this widget is applicable regardless of
 -- join status. If the user is not in the room, they will be shown join/invite options instead.

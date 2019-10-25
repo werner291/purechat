@@ -31,7 +31,7 @@ primaryView si = do
 
       dynamic_ $ currentChannel <#> \rId -> case rId of
         Just rid -> roomView si rid (Map.lookup rid <$> joined_channels)
-        Nothing -> text "Welcome! PLease select a room to get started.")
+        Nothing -> text "Welcome! Please select a room to get started.")
 
     dynamic_ $ joined_channels_maybe <#> \jcm -> case jcm of
       Just _ -> pure unit
