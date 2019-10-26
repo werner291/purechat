@@ -4,22 +4,26 @@ import Prelude
 
 import API (sendMessage)
 import API as API
-import CustomCombinators (elClass)
-import Data.Array as Array
+import CustomCombinators (dynamicMaybe_, elClass, elClass')
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, Error, message)
 import Effect.Aff as Aff
+import Effect.Class (liftEffect)
+import Effect.Console as Console
+import Foreign.Object (Object)
 import Foreign.Object as Object
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
 import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, fixFRP, holdDyn, subscribeEvent_, tagDyn)
+import Specular.Dom.Widgets.Input (checkbox, getTextInputValue, setTextInputValue)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, fixFRP, holdDyn, pull, readBehavior, subscribeDyn_, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe)
-import Specular.FRP.List (dynamicList, dynamicList_)
+import Specular.FRP.List (dynamicList_)
+import Unsafe.Coerce (unsafeCoerce)
+import Web.DOM.Element (scrollHeight, setScrollTop)
 
 divClass :: forall m a. MonadWidget m => String -> m a -> m a
 divClass cls content = elAttr "div" (Object.fromFoldable [ Tuple "class" cls ]) content
@@ -61,6 +65,9 @@ viewEvent evt =
           Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
           Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
 
+-- foreign import scrollTo :: Node -> Number -> Effect Unit
+
+
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic RoomData -> m Unit
 joinedRoomView si rId rd = do
@@ -72,9 +79,24 @@ joinedRoomView si rId rd = do
 
   elClass "hr" "roomname-content-set" (pure unit)
 
-  elClass "div" "room-messages"
+  (Tuple msgListNode _) <- elClass' "div" "room-messages"
     $ dynamicList_ ((_.timeline.events) <$> rd)
     $ \devt -> dynamic_ $ devt <#> viewEvent
+
+  autoScroll <- checkbox true Object.empty
+  text "Auto-scroll"
+
+  let 
+    scrollToBottomCond = do
+      autoScrl <- pull $ readBehavior (current autoScroll)
+      when autoScrl do
+        let elt = unsafeCoerce msgListNode
+        h <- scrollHeight elt
+        setScrollTop h elt
+
+  liftEffect scrollToBottomCond
+  subscribeDyn_  (const scrollToBottomCond) rd 
+
   msg <- composeMessageWidget
   currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))
   result <- asyncRequestMaybe currentRequest
@@ -109,12 +131,4 @@ joinRoomView si rId = do
 roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic (Maybe RoomData) -> m Unit
 roomView si rId mrd =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ]) $ do
-
-    -- We use 2 separate dynamic widgets here to avoid re-creating 
-    -- the joined room view every time we get a new message
-    -- dynamicList_ (Array.fromFoldable <$> mrd) (joinedRoomView si rId)
-    -- dynamic_ $ mrd
-    --     <#> \rd -> case rd of
-    --         Just _ -> pure unit
-    --         Nothing -> joinRoomView si rId
     dynamicMaybe_ mrd (joinedRoomView si rId) (const (pure unit))

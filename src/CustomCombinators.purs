@@ -11,8 +11,8 @@ import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
 import Partial.Unsafe (unsafePartialBecause)
-import Specular.Dom.Browser (TagName)
-import Specular.Dom.Builder.Class (elAttr)
+import Specular.Dom.Browser (Node, TagName)
+import Specular.Dom.Builder.Class (elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, dynamic_, holdDyn, sampleAt, subscribeEvent_)
 import Specular.FRP.List (dynamicList, dynamicList_)
@@ -25,6 +25,9 @@ sampleId e b = sampleAt (const identity <$> e) b
 
 elClass :: forall m a. MonadWidget m => TagName -> String -> m a -> m a
 elClass tagName cls content = elAttr tagName (Object.fromFoldable [Tuple "class" cls]) content
+
+elClass' :: forall m a. MonadWidget m => TagName -> String -> m a -> m (Tuple Node a)
+elClass' tagName cls content = elAttr' tagName (Object.fromFoldable [Tuple "class" cls]) content
 
 localStorageDynamic :: forall m. MonadFRP m => String -> Storage -> Event (Maybe String) -> m (Dynamic (Maybe String))
 localStorageDynamic key stor updt = do
@@ -56,6 +59,8 @@ dynamicMaybe dm mkJ = do
 
 dynamicMaybe_ :: forall a m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m Unit) -> (Unit -> m Unit) -> m Unit
 dynamicMaybe_ dm mkJ mkN = do
+    -- We use 2 separate dynamic widgets here to avoid re-creating 
+    -- the view every time we get a new value within the maybe.
     dynamicList_ (Array.fromFoldable <$> dm) mkJ
     dynamic_ $ dm
         <#> \m -> case m of
