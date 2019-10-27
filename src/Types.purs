@@ -101,7 +101,7 @@ foldEventIntoRoomState st {content: Right (RoomCanonicalAlias cs)} = st {display
 foldEventIntoRoomState st _ = st
 
 type SessionInfo
-  = { token :: LoginToken, homeserver :: String }
+  = { token :: LoginToken, homeserver :: String, user_id :: UserId }
 
 newtype LoginToken
   = LoginToken String
@@ -141,3 +141,20 @@ instance decodeJsonRoomId :: DecodeJson RoomId where
   decodeJson jn = do
     o <- decodeJson jn
     pure (RoomId o)
+
+newtype UserId = UserId String
+
+unUserId :: UserId -> String
+unUserId (UserId s) = s
+
+derive instance userIdEq :: Eq UserId
+
+derive instance userIdOrd :: Ord UserId
+
+instance decodeJsonUserId :: DecodeJson UserId where
+  decodeJson jn = do
+    o <- decodeJson jn
+    pure (UserId o)
+
+instance encodeJsonUserId :: EncodeJson UserId where
+  encodeJson (UserId u) = encodeJson u

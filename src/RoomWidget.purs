@@ -11,15 +11,13 @@ import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, Error, message)
 import Effect.Aff as Aff
 import Effect.Class (liftEffect)
-import Effect.Console as Console
-import Foreign.Object (Object)
 import Foreign.Object as Object
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
 import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (checkbox, getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, fixFRP, holdDyn, pull, readBehavior, subscribeDyn_, subscribeEvent_, tagDyn)
+import Specular.FRP (class MonadFRP, Dynamic, Event, current, dynamic_, fixFRP, holdDyn, holdWeakDyn, pull, readBehavior, subscribeDyn_, subscribeEvent_, tagDyn, unWeakDynamic)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Unsafe.Coerce (unsafeCoerce)
@@ -67,15 +65,21 @@ viewEvent evt =
 
 -- foreign import scrollTo :: Node -> Number -> Effect Unit
 
+holdDynLatestJust :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
+holdDynLatestJust updt = map unWeakDynamic $ holdWeakDyn updt
 
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic RoomData -> m Unit
 joinedRoomView si rId rd = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
-  elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+  {leave} <- elClass "div" "room-meta" do
+    elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+    leave <- buttonOnClick (pure Object.empty) $ elClass "i" "fas fa-sign-out-alt" (pure unit)
+    pure {leave}
 
-  leave <- buttonOnClick (pure Object.empty) $ text "Leave room"
+  _ <- asyncRequestMaybe =<< (holdDynLatestJust $ (const $ API.leaveRoom si rId) <$> leave) --(holdDyn Nothing (const (Just $ API.leaveRoom si rId) <$> leave))
+  --subscribeEvent_ (\_ -> ) leave
 
   elClass "hr" "roomname-content-set" (pure unit)
 
@@ -131,4 +135,8 @@ joinRoomView si rId = do
 roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic (Maybe RoomData) -> m Unit
 roomView si rId mrd =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ]) $ do
-    dynamicMaybe_ mrd (joinedRoomView si rId) (const (pure unit))
+    dynamicMaybe_ mrd (joinedRoomView si rId)
+    dynamic_ $ mrd <#> case _ of
+      Just _ -> pure unit
+      Nothing -> joinRoomView si rId
+

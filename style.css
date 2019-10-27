@@ -12,17 +12,39 @@ body {
     font-weight: 550;
 }
 
+.profile-bar {
+    display: flex;
+    flex-direction: row;
+    padding: 2mm;
+}
+
+.profile-bar img.avatar {
+    height: 10mm;
+}
+
+.profile-bar p.username {
+    margin: 0 2mm;
+    font-weight: 600;
+    font-size: 4mm;
+    line-height: 10mm;
+}
+
 body .room-view {
     flex-grow: 1;
 }
 
-.channel-directory {
+.sidebar {
     display: flex;
     flex-direction: column;
     padding: 2mm;
     background-color: rgb(0, 0, 100);
     color: white;
     width: 7cm;
+}
+
+.sidebar {
+    /* width: 100%; */
+    border: solid white 1px;
 }
 
 .channel-directory ul {
@@ -69,3 +91,4 @@ hr.roomname-content-set {
     width: 100%;
     border: solid black 1px;
 }
+

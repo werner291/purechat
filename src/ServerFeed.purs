@@ -3,7 +3,7 @@ module Purechat.ServerFeed (serverState) where
 
 import Prelude
 
-import API (SyncPollResult, RoomUpdate, pollSyncProducer)
+import API (RoomUpdate, SyncPollResult, RoomLeave, pollSyncProducer)
 import Data.Foldable (foldl)
 import Data.Map (Map)
 import Data.Map as Map
@@ -23,17 +23,25 @@ syncFeed si = do
 
 -- data ServerStateStatus = LoadingState | Loaded (Map RoomId RoomData) | Error String
 
--- A Dynamic representing the currently known user-relevant state of the Matrix server
--- This data need not be entirely complete, it is simply what is known at the current
--- time, and of that, only the parts that we currently need.
-serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (Maybe (Map RoomId RoomData))) 
-serverState si = do
+updateJoins :: Map RoomId RoomUpdate -> Maybe (Map RoomId RoomData) -> Map RoomId RoomData
+updateJoins updt rooms = 
     let combineRoom :: RoomUpdate -> Maybe RoomData -> Maybe RoomData--Nothing (Just )
         combineRoom ru Nothing = Just { timeline : {events : ru.new_timeline_events }
                                       , state : foldl foldEventIntoRoomState mempty ru.new_state_events }
         combineRoom ru (Just rd) = Just { timeline : {events : rd.timeline.events <> ru.new_timeline_events }
                                    , state : foldl foldEventIntoRoomState rd.state ru.new_state_events }
-        combine :: Map RoomId RoomUpdate -> Maybe (Map RoomId RoomData) -> Maybe (Map RoomId RoomData)
-        combine updt rooms = Just $ foldl (\m (Tuple k ru) -> Map.alter (combineRoom ru) k m) (fromMaybe (Map.empty) rooms) ((Map.toUnfoldable updt) :: Array (Tuple RoomId RoomUpdate))
+    in foldl (\m (Tuple k ru) -> Map.alter (combineRoom ru) k m) (fromMaybe (Map.empty) rooms) ((Map.toUnfoldable updt) :: Array (Tuple RoomId RoomUpdate))
+
+updateLeaves :: Map RoomId RoomLeave -> Map RoomId RoomData -> Map RoomId RoomData
+updateLeaves leave rooms = Map.difference rooms leave
+
+performUpdates :: SyncPollResult -> Maybe (Map RoomId RoomData) -> Map RoomId RoomData
+performUpdates srp rooms = updateLeaves srp.rooms.leave $ updateJoins srp.rooms.join $ rooms
+
+-- A Dynamic representing the currently known user-relevant state of the Matrix server
+-- This data need not be entirely complete, it is simply what is known at the current
+-- time, and of that, only the parts that we currently need.
+serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (Maybe (Map RoomId RoomData))) 
+serverState si = do
     feed :: Event SyncPollResult <- syncFeed si
-    foldDyn combine Nothing (_.rooms.join <$> feed)
+    foldDyn (\updt rooms -> Just $ performUpdates updt rooms) Nothing feed
