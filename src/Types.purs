@@ -62,7 +62,7 @@ decodeRoomEvent json = do
         pure { event_id, sender, content: (Right (Message { body })) }
       "m.room.member" -> do
         content <- getField o "content"
-        displayname <- getField content "display_name"
+        displayname <- getField content "displayname"
         membership <- getField content "membership"
         pure { event_id, sender, content: (Right (Membership { displayname, membership })) }
       "m.room.name" -> do
