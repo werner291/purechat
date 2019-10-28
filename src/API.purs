@@ -57,7 +57,7 @@ stringifyErrors (Left e) = Left (show e)
 -- | and password pair on the given homeserver uri.
 -- | Aff returns either a string error or a Login token.
 -- | TODO: This thing is rather dumb and does not take .well-known and such into account.
-tryLogin :: String -> String -> String -> Aff (Either String SessionInfo)
+tryLogin :: String -> String -> String -> Aff SessionInfo
 tryLogin username password homeserver = do
   let
     reqBody :: JSON.Json
@@ -70,15 +70,14 @@ tryLogin username password homeserver = do
           ~> JSON.jsonEmptyObject
       )
   response <- AX.post AXRF.json (homeserver <> "/_matrix/client/r0/login") (RB.json reqBody)
-  pure
-    $ case response.status of
+  case response.status of
         (StatusCode 200) -> case response.body of
           Right json -> case JSON.decodeJson json of
-            Left err -> Left err
-            Right (decoded :: { access_token :: String, user_id :: String }) -> Right $ { token: LoginToken decoded.access_token, homeserver: homeserver, user_id: UserId decoded.user_id }
-          _ -> Left "Server returned invalid JSON."
-        (StatusCode 401) -> Left "Authentication failed, please verify credentials."
-        _ -> Left $ "Unexpected server response HTTP " <> show (response.statusText)
+            Left err -> throwError $ error err
+            Right (decoded :: { access_token :: String, user_id :: String }) -> pure  { token: LoginToken decoded.access_token, homeserver: homeserver, user_id: UserId decoded.user_id }
+          _ -> throwError $ error "Server returned invalid JSON."
+        (StatusCode 401) -> throwError $ error  "Authentication failed, please verify credentials."
+        _ -> throwError $ error $ "Unexpected server response HTTP " <> show (response.statusText)
 
 type RoomLeave
   = {}
