@@ -72,13 +72,19 @@ joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId
 joinedRoomView si rId rd = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
-  {leave} <- elClass "div" "room-meta" do
+  elClass "div" "room-meta" do
     elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
-    leave <- buttonOnClick (pure Object.empty) $ elClass "i" "fas fa-sign-out-alt" (pure unit)
-    pure {leave}
-
-  _ <- asyncRequestMaybe =<< (holdDynLatestJust $ (const $ API.leaveRoom si rId) <$> leave) --(holdDyn Nothing (const (Just $ API.leaveRoom si rId) <$> leave))
-  --subscribeEvent_ (\_ -> ) leave
+    
+    _ <- affButtonLoopSimplified 
+      { ready: \_ -> do
+          leave <- buttonOnClick (pure Object.empty) $ elClass "i" "fas fa-sign-out-alt" (pure unit)
+          pure $ (const $ API.leaveRoom si rId) <$> leave
+      , loading: do 
+          pulseSpinner 
+          text "Leaving..."
+      , success: const $ pure unit
+      }
+    pure unit
 
   elClass "hr" "roomname-content-set" (pure unit)
 

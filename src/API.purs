@@ -369,7 +369,7 @@ createRoom si alias = do
     reqBody :: JSON.Json
     reqBody =
       ( 
-        "alias" :=  alias ~> JSON.jsonEmptyObject 
+        "room_alias_name" :=  alias ~> JSON.jsonEmptyObject 
       )
 
   json <- responseOkWithBody =<< (postJsonAuthed si "/_matrix/client/r0/createRoom" reqBody)

@@ -27,9 +27,9 @@ updateJoins :: Map RoomId RoomUpdate -> Maybe (Map RoomId RoomData) -> Map RoomI
 updateJoins updt rooms = 
     let combineRoom :: RoomUpdate -> Maybe RoomData -> Maybe RoomData--Nothing (Just )
         combineRoom ru Nothing = Just { timeline : {events : ru.new_timeline_events }
-                                      , state : foldl foldEventIntoRoomState mempty ru.new_state_events }
+                                      , state : foldl foldEventIntoRoomState mempty (ru.new_state_events <> ru.new_timeline_events) }
         combineRoom ru (Just rd) = Just { timeline : {events : rd.timeline.events <> ru.new_timeline_events }
-                                   , state : foldl foldEventIntoRoomState rd.state ru.new_state_events }
+                                   , state : foldl foldEventIntoRoomState rd.state (ru.new_state_events <> ru.new_timeline_events) }
     in foldl (\m (Tuple k ru) -> Map.alter (combineRoom ru) k m) (fromMaybe (Map.empty) rooms) ((Map.toUnfoldable updt) :: Array (Tuple RoomId RoomUpdate))
 
 updateLeaves :: Map RoomId RoomLeave -> Map RoomId RoomData -> Map RoomId RoomData
