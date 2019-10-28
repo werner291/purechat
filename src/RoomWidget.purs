@@ -4,12 +4,11 @@ import Prelude
 
 import API (sendMessage)
 import API as API
-import CustomCombinators (dynamicMaybe_, elClass, elClass')
+import CustomCombinators (affButtonLoopSimplified, dynamicMaybe_, elClass, elClass', pulseSpinner)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
-import Effect.Aff (Aff, Error, message)
-import Effect.Aff as Aff
+import Effect.Aff (message)
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
@@ -18,7 +17,7 @@ import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (checkbox, getTextInputValue, setTextInputValue)
 import Specular.FRP (class MonadFRP, Dynamic, Event, current, dynamic_, fixFRP, holdDyn, holdWeakDyn, pull, readBehavior, subscribeDyn_, subscribeEvent_, tagDyn, unWeakDynamic)
-import Specular.FRP.Async (RequestState(..), asyncRequestMaybe)
+import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element (scrollHeight, setScrollTop)
@@ -111,19 +110,18 @@ joinRoomView si rId = do
   
   el "p" $ text ("You are currently not participating in room " <> (unRoomId rId) <> " would you like to join it?")
   
-  tryJoin <- buttonOnClick (pure mempty) (text "Join room")
-
-  let 
-    joinAttempts :: Event (Aff (Either Error Unit))
-    joinAttempts = tryJoin <#> \_ -> Aff.try $ API.tryJoinRoom si (unRoomId rId)
-
-  joinRequestStatus <- asyncRequestMaybe =<< holdDyn Nothing (map Just joinAttempts)
-
-  dynamic_ $ joinRequestStatus <#> \status -> case status of
-    NotRequested -> pure unit
-    Loading -> text "Joining room..."
-    Loaded (Left e) -> text $ "Failed to join room: " <> (message e)
-    Loaded (Right _) -> text $ "Room successfully joined! Loading room view...: "
+  _ <- affButtonLoopSimplified 
+        { ready: \err -> do
+            case err of 
+              Just e -> text $ "Failed to join room: " <> (message e)
+              Nothing -> pure unit
+            tryJoin <- buttonOnClick (pure mempty) (text "Join room")
+            pure $ (const $ API.tryJoinRoom si (unRoomId rId)) <$> tryJoin
+        , loading: do
+            pulseSpinner 
+            text "Joining room..."
+        , success: \_ -> text $ "Room successfully joined!"
+        }
 
   pure unit
 

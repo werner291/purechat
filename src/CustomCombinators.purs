@@ -5,15 +5,18 @@ import Prelude
 
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, jsonParser, stringify)
 import Data.Array as Array
-import Data.Either (Either(..))
+import Data.Either (Either(..), hush)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Effect.Aff (Aff, try)
 import Effect.Class (liftEffect)
+import Effect.Exception (Error)
 import Foreign.Object as Object
 import Specular.Dom.Browser (Node, TagName)
 import Specular.Dom.Builder.Class (elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, dynamic_, holdDyn, sampleAt, subscribeEvent_)
+import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, dynamic_, filterMapEvent, fixFRP, holdDyn, holdWeakDyn, never, sampleAt, subscribeEvent_, switch, unWeakDynamic)
+import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
 import Specular.FRP.List (dynamicList, dynamicList_)
 import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
 
@@ -73,3 +76,26 @@ dynamicMaybe_ dm mkJ = do
     --     <#> \m -> case m of
     --         Just _ -> pure unit
     --         Nothing -> mkN unit
+
+-- | A widget combinator that represents the common scenario where a is provided with one view,
+-- | actions in this view result in some async action (such as a network request). This action
+-- | takes some time, during which the user will see some kind of "loading" view.
+-- | Finally, the action will result in success or failure.
+affButtonLoop :: forall a m. MonadWidget m => MonadFRP m => (RequestState (Either Error a) -> m (Event (Aff a))) -> m (Event a)
+affButtonLoop loop = fixFRP $ \(attempts :: Event (Aff a)) -> do
+    latestRequest :: WeakDynamic (Aff a) <- holdWeakDyn attempts
+    requestStatus :: Dynamic (RequestState (Either Error a)) <- asyncRequestMaybe $ unWeakDynamic $ map try latestRequest
+    attempts' <- switch <$> (dynamic $ requestStatus <#> loop)
+    pure $ Tuple attempts' (filterMapEvent (\status -> hush =<< fromLoaded status) $ changed requestStatus)
+
+affButtonLoopSimplified :: forall a m. MonadWidget m => MonadFRP m => 
+    { ready :: Maybe Error -> m (Event (Aff a)), loading :: m Unit, success :: a -> m Unit }-> m (Event a)
+affButtonLoopSimplified {ready, loading, success} = 
+    affButtonLoop $ case _ of
+    NotRequested -> ready Nothing
+    Loading -> loading >>= (const $ pure never)
+    Loaded (Left e) -> ready (Just e)
+    Loaded (Right a) -> success a >>= (const $ pure never)
+
+pulseSpinner :: forall m. MonadWidget m => m Unit
+pulseSpinner = elClass "i" "fas fa-spinner fa-pulse" $ pure unit
