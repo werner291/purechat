@@ -19,10 +19,12 @@ import Purechat.Types (RoomData, RoomId, SessionInfo)
 import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, holdDyn)
+import Specular.Dom.Widgets.Button (buttonOnClick)
+import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, holdDyn, leftmost)
 import Specular.FRP.Async (RequestState(..), asyncRequest)
 import Web.File.Blob (Blob)
 import Web.File.Url (createObjectURL)
+import Purechat.Widgets.CreateRoomWidget (createRoomWidget)
   
 profileBar :: forall m. MonadWidget m => SessionInfo -> m Unit
 profileBar si = elClass "div" "profile-bar" do
@@ -46,16 +48,22 @@ profileBar si = elClass "div" "profile-bar" do
       pure unit
     _ -> text $ "Fetching profile..."
 
-sidebar :: forall m. MonadWidget m => SessionInfo -> Dynamic (Map RoomId RoomData) -> m { channelPicked :: Event (RoomId) }
+sidebar :: forall m. MonadWidget m => SessionInfo -> Dynamic (Map RoomId RoomData) -> m { channelPicked :: Event (RoomId), createRoom :: Event Unit }
 sidebar si joined_channels = 
   elClass "div" "sidebar" do
     profileBar si
 
-    -- elClass "hr" "sidebar-sep" (pure unit)
+    createRoom <- buttonOnClick (pure Object.empty) do
+      elClass "i" "fas fa-plus" $ pure unit
+      text "Create room"
 
     channelPicked <- channelDirectory joined_channels
-    pure {channelPicked}
+    pure {channelPicked,createRoom}
 
+data RoomViewState = 
+  PickRoom
+  | ShowRoom RoomId
+  | CreateRoom
 
 -- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> m Unit
@@ -65,15 +73,16 @@ primaryView si = do
 
     dynamicMaybe_ joined_channels_maybe $ (\joined_channels -> do
       
-      {channelPicked} <- sidebar si joined_channels
+      {channelPicked, createRoom} <- sidebar si joined_channels
 
       -- TODO : Make some kind of multi-window view. Should be easy enough by
       --        just making multiple sub-components here...
-      currentChannel <- holdDyn Nothing (Just <$> channelPicked)
+      currentRoomView <- holdDyn PickRoom $ leftmost [ShowRoom <$> channelPicked, const CreateRoom <$> createRoom]
 
-      dynamic_ $ currentChannel <#> \rId -> case rId of
-        Just rid -> roomView si rid (Map.lookup rid <$> joined_channels)
-        Nothing -> text "Welcome! Please select a room to get started.")
+      dynamic_ $ currentRoomView <#> case _ of
+        CreateRoom -> createRoomWidget si >>= const (pure unit)
+        ShowRoom rid -> roomView si rid (Map.lookup rid <$> joined_channels)
+        PickRoom -> text "Welcome! Please select a room to get started.")
 
     dynamic_ $ joined_channels_maybe <#> \jcm -> case jcm of
       Just _ -> pure unit

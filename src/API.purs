@@ -14,6 +14,7 @@ module API
   , getProfile
   , getMediaWithPossibleMXC
   , UserProfile
+  , createRoom
   ) where
 
 import Prelude
@@ -25,13 +26,13 @@ import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AR
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
-import Data.Argonaut (Json, decodeJson, getField, getFieldOptional, (.:), (:=), (~>))
+import Data.Argonaut (Json, decodeJson, getField, getFieldOptional, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.FoldableWithIndex (foldlWithIndex)
 import Data.HTTP.Method (Method(..))
 import Data.Map (Map)
-import Data.Map (empty, fromFoldableWithIndex, insert) as Map
+import Data.Map (empty, insert) as Map
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
 import Data.String as String
@@ -49,6 +50,7 @@ import Web.File.Blob (Blob)
 -- | by extracting the error message.
 stringifyErrors :: forall a. Either Error (Either String a) -> (Either String a)
 stringifyErrors (Right x) = x
+
 stringifyErrors (Left e) = Left (show e)
 
 -- | Attempt to obtain a login token using the provided username 
@@ -73,13 +75,16 @@ tryLogin username password homeserver = do
         (StatusCode 200) -> case response.body of
           Right json -> case JSON.decodeJson json of
             Left err -> Left err
-            Right (decoded :: {access_token :: String, user_id :: String}) -> Right $ {token:LoginToken decoded.access_token, homeserver:homeserver, user_id : UserId decoded.user_id}
+            Right (decoded :: { access_token :: String, user_id :: String }) -> Right $ { token: LoginToken decoded.access_token, homeserver: homeserver, user_id: UserId decoded.user_id }
           _ -> Left "Server returned invalid JSON."
         (StatusCode 401) -> Left "Authentication failed, please verify credentials."
         _ -> Left $ "Unexpected server response HTTP " <> show (response.statusText)
 
-type RoomLeave = {}
-type RoomInvite = {}
+type RoomLeave
+  = {}
+
+type RoomInvite
+  = {}
 
 -- | The parsed type resulting from a single call to the r0/sync API endpoint.
 -- | Consider this type as containing arbitrary new information from the server
@@ -94,8 +99,10 @@ type SyncPollResult
     }
 
 -- A set of updates specifically pertaining to one room.
-type RoomUpdate = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
-                  , new_state_events :: Array (MatrixEvent MatrixRoomEvent) }
+type RoomUpdate
+  = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
+    , new_state_events :: Array (MatrixEvent MatrixRoomEvent)
+    }
 
 decodeRoomUpdate :: Json -> Either String RoomUpdate
 decodeRoomUpdate json = do
@@ -109,8 +116,6 @@ decodeRoomUpdate json = do
     , new_state_events
     }
 
-
-    
 -- Essentially a JsonDecode instance for SyncPollResult, 
 -- except we currently don't use a custom type for this.
 decodePollResult :: Json -> Either String SyncPollResult
@@ -118,23 +123,16 @@ decodePollResult json = do
   let
     objToRoomMap :: forall a. Object a -> Map RoomId a
     objToRoomMap o = foldlWithIndex (\k acc a -> Map.insert (RoomId k) a acc) Map.empty o
-
   obj <- decodeJson json
   rooms <- obj .: "rooms"
-
   joinedRooms <- getField rooms "join"
   join :: Map RoomId RoomUpdate <- traverse decodeRoomUpdate $ objToRoomMap joinedRooms
-
   invitedRooms <- getField rooms "invite"
   invite :: Map RoomId RoomInvite <- traverse decodeJson $ objToRoomMap invitedRooms
-
   leaveRooms <- getField rooms "leave"
   leave <- traverse decodeJson $ objToRoomMap leaveRooms
-
-  
   next_batch <- obj .: "next_batch"
   pure { rooms: { join, invite, leave }, next_batch }
-
 
 pollSyncOnce :: SessionInfo -> Maybe String -> Aff SyncPollResult
 pollSyncOnce si since = do
@@ -155,11 +153,11 @@ pollSyncOnce si since = do
     _ -> throwError $ EE.error resp.statusText
 
 pollSyncProducer :: SessionInfo -> (SyncPollResult -> Aff Unit) -> Aff Unit
-pollSyncProducer si callback = 
-  let 
+pollSyncProducer si callback =
+  let
     pollLoop :: Maybe String -> Aff Unit
     pollLoop since = do
-      res <- pollSyncOnce si since 
+      res <- pollSyncOnce si since
       callback res
       pollLoop $ Just res.next_batch
   in
@@ -173,15 +171,16 @@ pathToUri si path = si.homeserver <> path
 
 -- | Helper method that builds a request with a given session, API endpoint path and optional request body in JSON format.
 requestJsonAuthed :: SessionInfo -> String -> Method -> Maybe Json -> Aff (Response (Either ResponseFormatError Json))
-requestJsonAuthed si path method body = AX.request 
-  ( AX.defaultRequest
-      { url = pathToUri si path
-      , responseFormat = AXRF.json
-      , headers = [ authHeader si ]
-      , method = Left method
-      , content = map RB.json body
-      }
-  )
+requestJsonAuthed si path method body =
+  AX.request
+    ( AX.defaultRequest
+        { url = pathToUri si path
+        , responseFormat = AXRF.json
+        , headers = [ authHeader si ]
+        , method = Left method
+        , content = map RB.json body
+        }
+    )
 
 -- | `requestJsonAuthed` with POST method and required body.
 postJsonAuthed :: SessionInfo -> String -> Json -> Aff (Response (Either ResponseFormatError Json))
@@ -198,53 +197,46 @@ getJsonAuthed si path = requestJsonAuthed si path GET Nothing
 -- | Send a string message into a room with a given ID
 sendMessage :: SessionInfo -> RoomId -> String -> Aff Unit
 sendMessage si roomId body = do
-
   -- Generate a message transaction ID to ensure idempotency.
   txnId <- liftEffect $ UUID.genUUID
-
   let
     -- Body with message text and message type.
     reqBody :: JSON.Json
     reqBody = ("msgtype" := "m.text" ~> "body" := body ~> JSON.jsonEmptyObject)
+
     -- Path includes room ID, event type and idempotency TXN id.
     path = "/_matrix/client/r0/rooms/" <> (unRoomId roomId) <> "/send/m.room.message/" <> (UUID.toString txnId)
-
   postJsonAuthed si path reqBody >>= responseOkOrBust
 
 -- | Simplify a response with possible error status into an Aff that returns Unit
 -- | if the response status is 200.
 responseOkOrBust :: Response (Either ResponseFormatError Json) -> Aff Unit
-responseOkOrBust resp = 
-  case resp.status of
-    (StatusCode 200) -> pure unit
-    _ -> throwError (error resp.statusText)
+responseOkOrBust resp = case resp.status of
+  (StatusCode 200) -> pure unit
+  _ -> throwError (error resp.statusText)
 
 -- | Simplify a response that might not have a success response and decoding issues
 -- | into a simple Aff that returns the body upon success, and throws any errors
 -- | that may pop up as an `Error`.
 responseOkWithBody :: forall b. Response (Either ResponseFormatError b) -> Aff b
-responseOkWithBody resp = 
-  case resp.status of
-    (StatusCode 200) -> case resp.body of
-      Left e -> throwError (error $ printResponseFormatError e)
-      Right b -> pure b
-    _ -> throwError (error resp.statusText)
+responseOkWithBody resp = case resp.status of
+  (StatusCode 200) -> case resp.body of
+    Left e -> throwError (error $ printResponseFormatError e)
+    Right b -> pure b
+  _ -> throwError (error resp.statusText)
 
 -- Attempt to join a room with a given room ID or alias.
 -- Depending on permissions, this may fail.
 tryJoinRoom :: SessionInfo -> String -> Aff Unit
-tryJoinRoom si rIdOrAlias = 
-  postJsonAuthed si ("/_matrix/client/r0/rooms/" <> rIdOrAlias <> "/join") JSON.jsonEmptyObject >>= responseOkOrBust
+tryJoinRoom si rIdOrAlias = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> rIdOrAlias <> "/join") JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Leave a room that the user is in.
 leaveRoom :: SessionInfo -> RoomId -> Aff Unit
-leaveRoom si rId =
-  postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/leave") JSON.jsonEmptyObject >>= responseOkOrBust
+leaveRoom si rId = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/leave") JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Forget a room that the user is in.
 forgetRoom :: SessionInfo -> RoomId -> Aff Unit
-forgetRoom si rId =
-  postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/forget") JSON.jsonEmptyObject >>= responseOkOrBust
+forgetRoom si rId = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/forget") JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Kick a user from a room with a reason.
 kickUser :: SessionInfo -> RoomId -> UserId -> String -> Aff Unit
@@ -252,11 +244,15 @@ kickUser si rId uId reason =
   let
     -- Body with message text and message type.
     reqBody :: JSON.Json
-    reqBody = ( "user_id" := (unUserId uId) 
-                ~> "reason" := reason 
-                ~> JSON.jsonEmptyObject)
+    reqBody =
+      ( "user_id" := (unUserId uId)
+          ~> "reason"
+          := reason
+          ~> JSON.jsonEmptyObject
+      )
+
     path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/kick"
-  in 
+  in
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
 -- Ban a user from a room with a reason.
@@ -265,11 +261,15 @@ banUser si rId uId reason =
   let
     -- Body with message text and message type.
     reqBody :: JSON.Json
-    reqBody = ( "user_id" := (unUserId uId) 
-                ~> "reason" := reason 
-                ~> JSON.jsonEmptyObject)
+    reqBody =
+      ( "user_id" := (unUserId uId)
+          ~> "reason"
+          := reason
+          ~> JSON.jsonEmptyObject
+      )
+
     path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/ban"
-  in 
+  in
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
 -- Unban a user from a room.
@@ -278,10 +278,13 @@ unbanUser si rId uId =
   let
     -- Body with message text and message type.
     reqBody :: JSON.Json
-    reqBody = ( "user_id" := (unUserId uId) 
-               ~> JSON.jsonEmptyObject)
+    reqBody =
+      ( "user_id" := (unUserId uId)
+          ~> JSON.jsonEmptyObject
+      )
+
     path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/unban"
-  in 
+  in
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
 -- | Perform a GET request for the given URL
@@ -296,42 +299,82 @@ getMediaWithPossibleMXC si url = do
 -- | Fetch an MXC resource.
 getMXC :: SessionInfo -> String -> Aff Blob
 getMXC si mediaId = do
-
-  resp <- AX.request 
-    ( AX.defaultRequest
-        { url = pathToUri si ("/_matrix/client/r0/download/" <> mediaId)
-        , responseFormat = AXRF.blob
-        , headers = [ authHeader si ]
-        , method = Left GET
-        }
-    )
-
+  resp <-
+    AX.request
+      ( AX.defaultRequest
+          { url = pathToUri si ("/_matrix/client/r0/download/" <> mediaId)
+          , responseFormat = AXRF.blob
+          , headers = [ authHeader si ]
+          , method = Left GET
+          }
+      )
   responseOkWithBody resp
 
-type UserProfile = { displayname :: String, avatar_url :: Maybe URL }
+type UserProfile
+  = { displayname :: String, avatar_url :: Maybe URL }
 
-getProfile :: SessionInfo -> UserId -> Aff UserProfile 
-getProfile si uid =
-  case encodeURIComponent $ unUserId uid of
-    Just encUid -> do
-      json <- responseOkWithBody =<< (getJsonAuthed si $ "/_matrix/client/r0/profile/"<>encUid)
-      let 
-        decoded = do
-          o <- decodeJson json
-          displayname :: String <- o .: "displayname"
-          avatar_url :: Maybe String <- getFieldOptional o "avatar_url"
-          pure {displayname, avatar_url}
-      case decoded of
-        Right x -> pure x
-        Left e -> throwError $ error e
-    Nothing -> throwError $ error "UserId contains unencodeable characters."
+getProfile :: SessionInfo -> UserId -> Aff UserProfile
+getProfile si uid = case encodeURIComponent $ unUserId uid of
+  Just encUid -> do
+    json <- responseOkWithBody =<< (getJsonAuthed si $ "/_matrix/client/r0/profile/" <> encUid)
+    let
+      decoded = do
+        o <- decodeJson json
+        displayname :: String <- o .: "displayname"
+        avatar_url :: Maybe String <- getFieldOptional o "avatar_url"
+        pure { displayname, avatar_url }
+    case decoded of
+      Right x -> pure x
+      Left e -> throwError $ error e
+  Nothing -> throwError $ error "UserId contains unencodeable characters."
 
 -- If the given URL is one that starts with mxc://
 -- this function returns an https URL with a proper access token as a URL parameter.
 -- Otherwise, this function is the identity function.
 httpOrMxcToHttp :: SessionInfo -> URL -> URL
-httpOrMxcToHttp si url =
-  case (String.stripPrefix (String.Pattern "mxc://") url) of
-    Just mediaId -> pathToUri si ("/_matrix/client/r0/download/" <> (mediaId) <> "?access_token=" <> (unToken si.token))
-    Nothing -> url
+httpOrMxcToHttp si url = case (String.stripPrefix (String.Pattern "mxc://") url) of
+  Just mediaId -> pathToUri si ("/_matrix/client/r0/download/" <> (mediaId) <> "?access_token=" <> (unToken si.token))
+  Nothing -> url
 
+type DirectoryEntry
+  = { room_id :: RoomId }
+
+type DirectoryView
+  = { chunk :: Array DirectoryEntry
+    , next_batch :: Maybe String
+    , prev_batch :: Maybe String
+    , total_room_count_estimate :: Maybe Int
+    }
+
+getDirectory :: SessionInfo -> Maybe String -> Maybe String -> Maybe String -> Aff DirectoryView
+getDirectory si filter from to = do
+  json <- responseOkWithBody =<< getJsonAuthed si "/_matrix/client/r0/publicRooms"
+
+  let 
+    decoded :: Either String DirectoryView 
+    decoded = do
+      o <- decodeJson json
+      chunk <- o .: "chunk"
+      next_batch <- o .:? "next_batch"
+      prev_batch <- o .:? "prev_batch"
+      total_room_count_estimate <- o .:? "total_room_count_estimate"
+      pure { chunk, next_batch, prev_batch, total_room_count_estimate }
+
+  case decoded of
+    Left err -> throwError $ error err
+    Right dec -> pure dec
+
+createRoom :: SessionInfo -> String -> Aff RoomId
+createRoom si alias = do
+  let 
+    reqBody :: JSON.Json
+    reqBody =
+      ( 
+        "alias" :=  alias ~> JSON.jsonEmptyObject 
+      )
+
+  json <- responseOkWithBody =<< (postJsonAuthed si "/_matrix/client/r0/createRoom" reqBody)
+
+  case decodeJson json of
+    Left err -> throwError $ error err
+    Right (dec :: {room_id::String}) -> pure $ RoomId dec.room_id
