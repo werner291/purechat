@@ -20,6 +20,7 @@ You can edit this file as you like.
     , "web-storage"
     , "specular"
     , "strings"
+    , "variant"
     ]
 , packages =
     ./packages.dhall

@@ -143,16 +143,6 @@ let additions = {
         repo = "https://github.com/slamdata/purescript-affjax.git",
         version = "v9.0.0"
     },
-    hareactive = {
-        dependencies = [] : List Text,
-        repo = "https://github.com/funkia/purescript-hareactive.git",
-        version = "v0.1.0"
-    },
-    turbine = {
-        dependencies = ["hareactive","web-uievents"],
-        repo = "https://github.com/funkia/purescript-turbine.git",
-        version = "v0.1.0"
-    },
     specular = { dependencies =
           [ "prelude", 
             "aff", 
@@ -167,7 +157,7 @@ let additions = {
       , repo =
           "https://github.com/restaumatic/purescript-specular.git"
       , version =
-          "v0.5.2"
+          "v0.6.2"
       }
 }
 

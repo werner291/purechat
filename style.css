@@ -9,7 +9,7 @@ body {
     right: 0;
     top: 0;
     bottom: 0;
-    font-weight: 550;
+    font-weight: 600;
 }
 
 .profile-bar {
@@ -22,15 +22,25 @@ body {
     height: 10mm;
 }
 
+.profile-bar * {
+    line-height: 10mm;
+}
+
 .profile-bar p.username {
     margin: 0 2mm;
     font-weight: 600;
     font-size: 4mm;
-    line-height: 10mm;
+    flex-grow: 1;
 }
 
-body .room-view {
+.profile-bar i {
+    font-size: 5mm;
+    margin: 2mm;
+}
+
+div.main-view {
     flex-grow: 1;
+    padding: 2mm;
 }
 
 .sidebar {
@@ -39,12 +49,21 @@ body .room-view {
     padding: 2mm;
     background-color: rgb(0, 0, 100);
     color: white;
-    width: 7cm;
+    width: 8cm;
 }
 
-.sidebar {
-    /* width: 100%; */
-    border: solid white 1px;
+.sidebar button {
+    border: none;
+    border-radius: 1mm;
+    padding: 2mm;
+    margin: 2mm 0;
+    color: white;
+    background-color: rgb(70, 70, 100);
+    font-weight: inherit;
+}
+
+.sidebar button i {
+    margin: 0 2mm;
 }
 
 .channel-directory ul {
@@ -55,10 +74,15 @@ body .room-view {
     margin: 1mm 0;
 }
 
+.sidebar input {
+    box-sizing: border-box;
+    width: 100%;
+    /* width: calc(100% - 4mm); */
+}
+
 .room-view {
     display: flex;
     flex-direction: column;
-    padding: 2mm;
 }
 
 .room-messages {
@@ -91,4 +115,3 @@ hr.roomname-content-set {
     width: 100%;
     border: solid black 1px;
 }
-
