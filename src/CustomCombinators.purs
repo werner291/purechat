@@ -12,10 +12,10 @@ import Effect.Aff (Aff, try)
 import Effect.Class (liftEffect)
 import Effect.Exception (Error)
 import Foreign.Object as Object
-import Specular.Dom.Browser (Node, TagName)
-import Specular.Dom.Builder.Class (elAttr, elAttr')
+import Specular.Dom.Browser (Node, TagName, Attrs)
+import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, dynamic_, filterMapEvent, fixFRP, holdDyn, holdWeakDyn, never, sampleAt, subscribeEvent_, switch, unWeakDynamic)
+import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, holdDyn, holdWeakDyn, never, sampleAt, subscribeEvent_, switch, unWeakDynamic)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
 import Specular.FRP.List (dynamicList, dynamicList_)
 import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
@@ -69,13 +69,7 @@ dynamicMaybe dm mkJ = do
 
 dynamicMaybe_ :: forall a m. MonadWidget m => Dynamic (Maybe a) -> (Dynamic a -> m Unit) -> m Unit
 dynamicMaybe_ dm mkJ = do
-    -- We use 2 separate dynamic widgets here to avoid re-creating 
-    -- the view every time we get a new value within the maybe.
     dynamicList_ (Array.fromFoldable <$> dm) mkJ
-    -- dynamic_ $ dm
-    --     <#> \m -> case m of
-    --         Just _ -> pure unit
-    --         Nothing -> mkN unit
 
 -- | A widget combinator that represents the common scenario where a is provided with one view,
 -- | actions in this view result in some async action (such as a network request). This action
@@ -99,3 +93,12 @@ affButtonLoopSimplified {ready, loading, success} =
 
 pulseSpinner :: forall m. MonadWidget m => m Unit
 pulseSpinner = elClass "i" "fas fa-spinner fa-pulse" $ pure unit
+
+holdDynLatestJust :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
+holdDynLatestJust updt = map unWeakDynamic $ holdWeakDyn updt
+
+-- Make an arbitrary DOM element clickeable.
+elemOnClick :: forall m. MonadWidget m => String -> Attrs -> m Unit -> m (Event Unit)
+elemOnClick tagName attrs inner = do
+    Tuple node _ <- elAttr' tagName attrs inner
+    domEventWithSample (\_ -> pure unit) "click" node

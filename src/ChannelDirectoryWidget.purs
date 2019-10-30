@@ -2,7 +2,7 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
 
-import CustomCombinators (elClass)
+import CustomCombinators (elClass, elemOnClick)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -15,12 +15,6 @@ import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
 import Specular.FRP (Dynamic, Event, dynamic, leftmost, never, switch)
 import Specular.FRP.List (dynamicList)
-
--- Make an arbitrary DOM element clickeable.
-elemOnClick :: forall m. MonadWidget m => String -> Attrs -> m Unit -> m (Event Unit)
-elemOnClick tagName attrs inner = do
-  Tuple node _ <- elAttr' tagName attrs inner
-  domEventWithSample (\_ -> pure unit) "click" node
 
 searchBar :: forall m. MonadWidget m => m (Event String)
 searchBar = do

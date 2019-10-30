@@ -16,14 +16,11 @@ import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (checkbox, getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, current, dynamic_, fixFRP, holdDyn, holdWeakDyn, pull, readBehavior, subscribeDyn_, subscribeEvent_, tagDyn, unWeakDynamic)
+import Specular.FRP (class MonadFRP, Dynamic, Event, current, dynamic_, fixFRP, holdDyn, pull, readBehavior, subscribeDyn_, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element (scrollHeight, setScrollTop)
-
-divClass :: forall m a. MonadWidget m => String -> m a -> m a
-divClass cls content = elAttr "div" (Object.fromFoldable [ Tuple "class" cls ]) content
 
 textareaOnChangeWithReset :: forall m. MonadWidget m => Event Unit -> m (Dynamic String)
 textareaOnChangeWithReset reset = do
@@ -45,7 +42,7 @@ composeMessageWidget =
         resetOut = const unit <$> outbox
       pure $ Tuple resetOut outbox
   in
-    divClass "message-form" $ fixFRP loop
+    elClass "div" "message-form" $ fixFRP loop
 
 viewEvent :: forall m. MonadWidget m => MatrixEvent MatrixRoomEvent -> m Unit
 viewEvent evt =
@@ -61,11 +58,6 @@ viewEvent evt =
           Right (RoomName n) -> text $ evt.sender <> " set the room's name to " <> n
           Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
           Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
-
--- foreign import scrollTo :: Node -> Number -> Effect Unit
-
-holdDynLatestJust :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
-holdDynLatestJust updt = map unWeakDynamic $ holdWeakDyn updt
 
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic RoomData -> m Unit
