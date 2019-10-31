@@ -58,43 +58,60 @@ viewEvent evt =
           Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
           Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
 
+leaveButton :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
+leaveButton si rId = do
+  _ <-
+    affButtonLoopSimplified
+      { ready:
+        \_ -> do
+          leave <- buttonOnClick (pure Object.empty) $ elClass "i" "fas fa-sign-out-alt" (pure unit)
+          pure $ (const $ API.leaveRoom si rId) <$> leave
+      , loading:
+        do
+          pulseSpinner
+          text "Leaving..."
+      , success: const $ pure unit
+      }
+  pure unit
+
+autoScrollBar :: forall m. MonadWidget m => Node -> Dynamic RoomData -> m Unit
+autoScrollBar elt rd = do
+-- A horizontal strip of space reserved for the checkbox that causes the view to auto-scroll down.
+  elClass "div" "auto-scoll-bar" do
+    autoScroll <- checkbox true Object.empty
+    text "Auto-scroll"
+      
+    let 
+      elt = unsafeCoerce msgListNode
+      scrollToBottomCond = do
+        h <- scrollHeight elt
+        setScrollTop h elt
+
+    liftEffect do
+      autoScrl <- pull $ readBehavior (current autoScroll)
+      when autoScrl scrollToBottomCond
+    subscribeDyn_ (const scrollToBottomCond) rd
+
 -- A widget showing the contents of a room that the user is currently participating in.
-joinedRoomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic RoomData -> m Unit
+joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> Dynamic RoomData -> m Unit
 joinedRoomView si rId rd = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
   elClass "div" "room-meta" do
     elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
-    _ <-
-      affButtonLoopSimplified
-        { ready:
-          \_ -> do
-            leave <- buttonOnClick (pure Object.empty) $ elClass "i" "fas fa-sign-out-alt" (pure unit)
-            pure $ (const $ API.leaveRoom si rId) <$> leave
-        , loading:
-          do
-            pulseSpinner
-            text "Leaving..."
-        , success: const $ pure unit
-        }
-    pure unit
+    leaveButton si rId
+
+  -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
+
+  -- List of room events
   (Tuple msgListNode _) <-
     elClass' "div" "room-messages"
       $ dynamicList_ ((_.timeline.events) <$> rd)
       $ \devt -> dynamic_ $ devt <#> viewEvent
-  autoScroll <- checkbox true Object.empty
-  text "Auto-scroll"
-  let
-    scrollToBottomCond = do
-      autoScrl <- pull $ readBehavior (current autoScroll)
-      when autoScrl do
-        let
-          elt = unsafeCoerce msgListNode
-        h <- scrollHeight elt
-        setScrollTop h elt
-  liftEffect scrollToBottomCond
-  subscribeDyn_ (const scrollToBottomCond) rd
+
+  autoScrollBar msgListNode rId
+
   msg <- composeMessageWidget
   currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))
   result <- asyncRequestMaybe currentRequest

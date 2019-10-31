@@ -9,7 +9,7 @@ import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Purechat.Types (RoomData, RoomId, SessionInfo, foldEventIntoRoomState)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
+import Specular.FRP (class MonadFRP, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
 import Specular.FRP.Async (startAff)
 
 -- An Event stream representing poll updates from the Matrix server.
