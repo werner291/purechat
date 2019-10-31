@@ -53,17 +53,22 @@ div.main-view {
     width: 8cm;
 }
 
-.sidebar button {
+button {
     border: none;
     border-radius: 1mm;
     padding: 2mm;
     margin: 2mm 0;
+    font-weight: inherit;
     color: white;
     background-color: rgb(70, 70, 100);
-    font-weight: inherit;
 }
 
 .sidebar button i {
+    margin: 0 2mm;
+}
+
+.message-form button {
+    height: 100%;
     margin: 0 2mm;
 }
 
@@ -110,7 +115,7 @@ div.main-view {
 }
 
 h2 {
-    margin: 2mm;
+    margin: 2mm 0;
 }
 
 hr.roomname-content-set {
@@ -124,4 +129,23 @@ button.invitee-add {
 
 i.invitee-remove {
     margin: 0 2mm;
+}
+
+button.save {
+    display: block;
+    margin: 5mm 0;
+}
+
+.room-meta {
+    display: flex;
+    flex-direction: horizontal;
+}
+
+.room-meta h2 {
+    flex-grow: 1;
+}
+
+.profile-edit img.avatar {
+    margin: 2mm;
+    vertical-align: middle;
 }

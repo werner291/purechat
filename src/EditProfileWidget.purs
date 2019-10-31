@@ -48,10 +48,14 @@ editProfileWidget :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> Use
 editProfileWidget si p =
   elClass "div" "profile-edit"
     $ do
-        text "Display name: "
-        displayname :: Dynamic String <- textInputOnInput p.displayname Object.empty
-        el "br" $ pure unit
-        text "Avatar: "
+        el "h2" $ text "Profile"
+
+        displayname :: Dynamic String <- elClass "div" "input-group" do
+          el "h3" $ text "Display Name"
+          textInputOnInput p.displayname Object.empty
+
+        el "h3" $ text "Avatar"
+
         av_url_updates :: Event URL <-
           affButtonLoop
             $ case _ of
@@ -81,17 +85,17 @@ editProfileWidget si p =
           affButtonLoop
             $ case _ of
                 NotRequested -> do
-                  clicks <- buttonOnClick (pure Object.empty) $ text "Save"
+                  clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
                   pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
                 Loading -> do
                   pulseSpinner
                   pure never
                 Loaded (Left err) -> do
                   text $ "Error occurred: " <> (message err)
-                  clicks <- buttonOnClick (pure Object.empty) $ text "Save"
+                  clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
                   pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
                 Loaded (Right mxc) -> do
                   text $ "Profile updated successfully."
-                  clicks <- buttonOnClick (pure Object.empty) $ text "Save"
+                  clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
                   pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
         pure updt

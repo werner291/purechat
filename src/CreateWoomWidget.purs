@@ -3,7 +3,7 @@ module Purechat.Widgets.CreateRoomWidget where
 import Prelude
 
 import API.Rooms (createRoom)
-import CustomCombinators (affButtonLoopSimplified, elClass, elemOnClick, pulseSpinner, elemOnClick)
+import CustomCombinators (affButtonLoopSimplified, elClass, elemOnClick, pulseSpinner)
 import Data.Maybe (Maybe(..))
 import Data.Set (Set)
 import Data.Set as Set
@@ -73,7 +73,7 @@ createRoomWidget si =
               case er of
                 Just err -> text $ "Failed to create room: " <> message err
                 Nothing -> pure unit
-              createClicks <- buttonOnClick (pure Object.empty) $ text "Create room"
+              createClicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Create room"
               pure
                 $ tagDyn
                     ( do

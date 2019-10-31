@@ -6,72 +6,83 @@ import API.Core (getJsonAuthed, postJsonAuthed, responseOkOrBust, responseOkWith
 import Data.Argonaut (decodeJson, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
-import Data.Maybe (Maybe)
+import Data.Maybe (Maybe(..))
 import Data.Set (Set)
 import Effect.Aff (Aff, error, throwError)
+import Global (encodeURIComponent)
 import Purechat.Types (RoomId(..), SessionInfo, UserId, unRoomId, unUserId)
 
+tryEncodeUriComponent :: String -> Aff String
+tryEncodeUriComponent inp = case encodeURIComponent inp of
+    (Just endRid) -> pure endRid
+    Nothing -> throwError $ error $ "String " <> inp <> " contains unencodeable characters."
 
 -- Attempt to join a room with a given room ID or alias.
 -- Depending on permissions, this may fail.
 tryJoinRoom :: SessionInfo -> String -> Aff Unit
-tryJoinRoom si rIdOrAlias = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> rIdOrAlias <> "/join") JSON.jsonEmptyObject >>= responseOkOrBust
+tryJoinRoom si rIdOrAlias = do
+    encRid <- tryEncodeUriComponent rIdOrAlias
+    postJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <> "/join") JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Leave a room that the user is in.
 leaveRoom :: SessionInfo -> RoomId -> Aff Unit
-leaveRoom si rId = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/leave") JSON.jsonEmptyObject >>= responseOkOrBust
+leaveRoom si rId = do
+    encRid <- tryEncodeUriComponent $ unRoomId rId
+    postJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <> "/leave") JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Forget a room that the user is in.
 forgetRoom :: SessionInfo -> RoomId -> Aff Unit
-forgetRoom si rId = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/forget") JSON.jsonEmptyObject >>= responseOkOrBust
+forgetRoom si rId = do
+    encRid <- tryEncodeUriComponent $ unRoomId rId
+    postJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <> "/forget") JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Kick a user from a room with a reason.
 kickUser :: SessionInfo -> RoomId -> UserId -> String -> Aff Unit
-kickUser si rId uId reason =
+kickUser si rId uId reason = do
+    encRid <- tryEncodeUriComponent $ unRoomId rId
     let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-        ( "user_id" := (unUserId uId)
-            ~> "reason"
-            := reason
-            ~> JSON.jsonEmptyObject
-        )
+        -- Body with message text and message type.
+        reqBody :: JSON.Json
+        reqBody =
+            ( "user_id" := (unUserId uId)
+                ~> "reason"
+                := reason
+                ~> JSON.jsonEmptyObject
+            )
 
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/kick"
-    in
+        path = "/_matrix/client/r0/rooms/" <> encRid <> "/kick"
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
 -- Ban a user from a room with a reason.
 banUser :: SessionInfo -> RoomId -> UserId -> String -> Aff Unit
-banUser si rId uId reason =
+banUser si rId uId reason = do
+    encRid <- tryEncodeUriComponent $ unRoomId rId
     let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-        ( "user_id" := (unUserId uId)
-            ~> "reason"
-            := reason
-            ~> JSON.jsonEmptyObject
-        )
+        -- Body with message text and message type.
+        reqBody :: JSON.Json
+        reqBody =
+            ( "user_id" := (unUserId uId)
+                ~> "reason"
+                := reason
+                ~> JSON.jsonEmptyObject
+            )
 
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/ban"
-    in
+        path = "/_matrix/client/r0/rooms/" <> encRid <> "/ban"
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
 -- Unban a user from a room.
 unbanUser :: SessionInfo -> RoomId -> UserId -> Aff Unit
-unbanUser si rId uId =
+unbanUser si rId uId = do
+    encRid <- tryEncodeUriComponent $ unRoomId rId
     let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-        ( "user_id" := (unUserId uId)
-            ~> JSON.jsonEmptyObject
-        )
+        -- Body with message text and message type.
+        reqBody :: JSON.Json
+        reqBody =
+            ( "user_id" := (unUserId uId)
+                ~> JSON.jsonEmptyObject
+            )
 
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/unban"
-    in
+        path = "/_matrix/client/r0/rooms/" <> encRid <> "/unban"
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
 

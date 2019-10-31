@@ -1,7 +1,6 @@
 module Purechat.Purechat (primaryView) where
 
 import Prelude
-
 import API.Profile (getProfile)
 import CustomCombinators (elClass, elemOnClick)
 import Data.Map as Map

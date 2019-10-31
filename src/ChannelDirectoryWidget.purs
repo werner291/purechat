@@ -3,7 +3,6 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 import Prelude
 
 import CustomCombinators (elClass, elemOnClick)
-import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set as Set
