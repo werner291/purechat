@@ -35,7 +35,7 @@ channelDirectory st =
     let
       clickableLi :: (Tuple RoomId RoomData) -> m (Event RoomId)
       clickableLi (Tuple rId rd) = do
-        clicks :: Event Unit <- elemOnClick "li" mempty $ text (fromMaybe (unRoomId rId) rd.state.display_name)
+        clicks :: Event Unit <- elemOnClick "li" mempty $ text rd.display_name
         pure $ const rId <$> clicks
 
       viewrow :: WeakDynamic (Tuple RoomId RoomData) -> m (Event RoomId)

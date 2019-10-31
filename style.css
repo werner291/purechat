@@ -90,6 +90,7 @@ button {
 .room-view {
     display: flex;
     flex-direction: column;
+    height: 100%;
 }
 
 .room-messages {
@@ -107,11 +108,26 @@ button {
 
 .message-wrapper {
     margin: 1mm;
+    display: flex;
+    flex-direction: row;
 }
 
 .message-wrapper .username {
     font-size: small;
     font-weight: bold;
+    margin: 1mm;
+}
+
+.message-wrapper .message {
+    font-size: small;
+    font-weight: 500;
+    margin: 1mm;
+}
+
+.message-wrapper img.avatar {
+    max-height: 8mm;
+    max-width: 8mm;
+    margin: 1mm 2mm;
 }
 
 h2 {

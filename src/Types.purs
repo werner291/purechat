@@ -3,10 +3,10 @@ module Purechat.Types where
 import Prelude
 
 import Affjax (URL)
-import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, (.:))
+import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional, (.:))
 import Data.Either (Either(..))
 import Data.Map (Map)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe, fromMaybe)
 
 type MatrixEvent a
   = { event_id :: String
@@ -33,7 +33,7 @@ instance decodeRoomMembership :: DecodeJson RoomMembership where
 --   eventTypeString (MatrixRoomEvent e) = eventTypeString e
 data MatrixRoomEvent
   = Message { body :: String }
-  | Membership { displayname :: String, membership :: RoomMembership }
+  | Membership { profile :: UserProfile, membership :: RoomMembership, user_id :: UserId }
   | RoomName String
   | RoomTopic String
   | RoomCanonicalAlias String
@@ -55,6 +55,7 @@ decodeRoomEvent json = do
   event_id <- o .: "event_id"
   sender <- o .: "sender"
   evtType <- o .: "type"
+  state_key :: String <- fromMaybe "" <$> getFieldOptional o "state_key"
   let
     res = case evtType of
       "m.room.message" -> do
@@ -64,8 +65,10 @@ decodeRoomEvent json = do
       "m.room.member" -> do
         content <- getField o "content"
         displayname <- getField content "displayname"
+        avatar_url <- getFieldOptional content "avatar_url"
         membership <- getField content "membership"
-        pure { event_id, sender, content: (Right (Membership { displayname, membership })) }
+        
+        pure { event_id, sender, content: (Right (Membership { profile:{displayname, avatar_url}, membership, user_id: UserId state_key })) }
       "m.room.name" -> do
         content <- getField o "content"
         name <- getField content "name"
@@ -85,21 +88,13 @@ decodeRoomEvent json = do
 
 -- | Record describing all available and known information about a room.
 type RoomData
-  = { timeline :: { events :: Array (MatrixEvent MatrixRoomEvent) }
-    , state :: RoomState --{ events :: Array (MatrixEvent MatrixRoomEvent) }
+  = { timeline :: Array (MatrixEvent MatrixRoomEvent)
+    , name :: Maybe String
+    , canonical_alias :: Maybe String
+    , topic :: Maybe String
+    , members :: Map UserId UserProfile
+    , display_name :: String -- Cached version of `roomNameFromData`
     }
-
-type RoomState = 
-  { display_name :: Maybe String
-  , topic :: Maybe String
-  , members :: Map String { display_name :: String }
-  }
-
-foldEventIntoRoomState :: RoomState -> MatrixEvent MatrixRoomEvent -> RoomState
-foldEventIntoRoomState st {content: Right (RoomName name)} = st {display_name=Just name}
-foldEventIntoRoomState st {content: Right (RoomTopic topic)} = st {topic=Just topic}
-foldEventIntoRoomState st {content: Right (RoomCanonicalAlias cs)} = st {display_name=Just cs}
-foldEventIntoRoomState st _ = st
 
 type SessionInfo
   = { token :: LoginToken, homeserver :: String, user_id :: UserId }
@@ -125,7 +120,8 @@ instance encodeToken :: EncodeJson LoginToken where
 ------------------
 -- RoomId stuff --
 ------------------
-newtype RoomId = RoomId String
+newtype RoomId
+  = RoomId String
 
 unRoomId :: RoomId -> String
 unRoomId (RoomId s) = s
@@ -143,7 +139,8 @@ instance decodeJsonRoomId :: DecodeJson RoomId where
     o <- decodeJson jn
     pure (RoomId o)
 
-newtype UserId = UserId String
+newtype UserId
+  = UserId String
 
 unUserId :: UserId -> String
 unUserId (UserId s) = s
@@ -163,5 +160,5 @@ instance encodeJsonUserId :: EncodeJson UserId where
 -------------
 -- Profile --
 -------------
-
-type UserProfile = { displayname :: String, avatar_url :: Maybe URL }
+type UserProfile
+  = { displayname :: String, avatar_url :: Maybe URL }

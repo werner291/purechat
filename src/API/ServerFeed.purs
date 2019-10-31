@@ -7,7 +7,9 @@ import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
 import Data.Argonaut (Json, decodeJson, getField, (.:))
+import Data.Array as Array
 import Data.Either (Either(..))
+import Data.Filterable (filterMap)
 import Data.Foldable (foldl)
 import Data.FoldableWithIndex (foldlWithIndex)
 import Data.Map (Map)
@@ -22,9 +24,29 @@ import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent, RoomData, RoomId(..), SessionInfo, decodeRoomEvent, foldEventIntoRoomState)
+import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId(..), RoomMembership, SessionInfo, decodeRoomEvent, unRoomId)
 import Specular.FRP (class MonadFRP, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
 import Specular.FRP.Async (startAff)
+
+
+-- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
+roomNameFromData :: RoomId -> RoomData -> String
+roomNameFromData rid { name, canonical_alias, members } = -- let heroesName =  members
+  fromMaybe (unRoomId rid) $ Array.head $ filterMap identity [ name, canonical_alias ]
+
+updateRoomName :: RoomId -> RoomData -> RoomData
+updateRoomName rId rd = rd { display_name = roomNameFromData rId rd }
+
+foldEventIntoRoomState :: RoomId -> RoomData -> MatrixEvent MatrixRoomEvent -> RoomData
+foldEventIntoRoomState rId st { content: Right (RoomName name) } = updateRoomName rId $ st { name = Just name }
+foldEventIntoRoomState rId st { content: Right (RoomTopic topic) } = updateRoomName rId $ st { topic = Just topic }
+foldEventIntoRoomState rId st { content: Right (RoomCanonicalAlias cs) } = updateRoomName rId $ st { canonical_alias = Just cs }
+foldEventIntoRoomState rId st { content: Right (Membership m) } = updateRoomName rId $ st { members = Map.insert m.user_id m.profile st.members }
+
+foldEventIntoRoomState rId st _ = st
+
+appendToTimeline :: MatrixEvent MatrixRoomEvent -> RoomData -> RoomData
+appendToTimeline ev rd = rd { timeline = Array.snoc rd.timeline ev }
 
 type RoomLeave
   = {}
@@ -42,12 +64,12 @@ type KnownServerState
 -- | that is to be merged with our current view of the server data.
 type SyncPollResult
   = { rooms ::
-    { join :: Map RoomId RoomUpdate
-    , invite :: Map RoomId RoomInvite
-    , leave :: Map RoomId RoomLeave
+      { join :: Map RoomId RoomUpdate
+      , invite :: Map RoomId RoomInvite
+      , leave :: Map RoomId RoomLeave
+      }
+    , next_batch :: String
     }
-  , next_batch :: String
-  }
 
 -- A set of updates specifically pertaining to one room.
 type RoomUpdate
@@ -68,7 +90,7 @@ decodeRoomUpdate json = do
     }
 
 -- Essentially a JsonDecode instance for SyncPollResult, 
--- except we currently don't use a custom type for this.
+-- except we currently don't use a custom type for .
 decodePollResult :: Json -> Either String SyncPollResult
 decodePollResult json = do
   let
@@ -125,21 +147,11 @@ syncFeed si = do
 updateJoins :: SyncPollResult -> Maybe KnownServerState -> KnownServerState
 updateJoins updt st =
   let
-    combineRoom :: RoomUpdate -> Maybe RoomData -> Maybe RoomData --Nothing (Just )
-    combineRoom ru Nothing =
-      Just
-        { timeline: { events: ru.new_timeline_events }
-        , state: foldl foldEventIntoRoomState mempty (ru.new_state_events <> ru.new_timeline_events)
-        }
-
-    combineRoom ru (Just rd) =
-      Just
-        { timeline: { events: rd.timeline.events <> ru.new_timeline_events }
-        , state: foldl foldEventIntoRoomState rd.state (ru.new_state_events <> ru.new_timeline_events)
-        }
+    combineRoom :: RoomUpdate -> RoomId -> Maybe RoomData -> Maybe RoomData --Nothing (Just )
+    combineRoom ru rid currentData = Just $ foldl (\rd ev -> appendToTimeline ev $ foldEventIntoRoomState rid rd ev) (updateRoomName rid mempty) (ru.new_state_events <> ru.new_timeline_events)
 
     foldTuple :: KnownServerState -> Tuple RoomId RoomUpdate -> KnownServerState
-    foldTuple m (Tuple k ru) = m { joined_rooms = Map.alter (combineRoom ru) k m.joined_rooms }
+    foldTuple m (Tuple k ru) = m { joined_rooms = Map.alter (combineRoom ru k) k m.joined_rooms }
 
     update_tuples :: Array (Tuple RoomId RoomUpdate)
     update_tuples = Map.toUnfoldable updt.rooms.join
@@ -150,10 +162,14 @@ updateLeaves :: SyncPollResult -> KnownServerState -> KnownServerState
 updateLeaves srp s = s { joined_rooms = Map.difference s.joined_rooms srp.rooms.leave }
 
 updateInvites :: SyncPollResult -> KnownServerState -> KnownServerState
-updateInvites srp st = st { invited_to = 
-  let 
-    with_new_invites = Set.union (st.invited_to) (Map.keys srp.rooms.invite)
-  in Set.difference with_new_invites (Map.keys srp.rooms.join) }
+updateInvites srp st =
+  st
+    { invited_to =
+      let
+        with_new_invites = Set.union (st.invited_to) (Map.keys srp.rooms.invite)
+      in
+        Set.difference with_new_invites (Map.keys srp.rooms.join)
+    }
 
 performUpdates :: SyncPollResult -> Maybe KnownServerState -> KnownServerState
 performUpdates srp s = updateLeaves srp $ updateInvites srp $ updateJoins srp $ s

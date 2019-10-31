@@ -6,11 +6,13 @@ import API.Core (sendMessage)
 import API.Rooms (leaveRoom, tryJoinRoom)
 import CustomCombinators (affButtonLoopSimplified, dynamicMaybe_, elClass, elClass', pulseSpinner)
 import Data.Either (Either(..))
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Map as Map
+import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Aff (message)
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
+import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
@@ -45,20 +47,23 @@ composeMessageWidget =
   in
     elClass "div" "message-form" $ fixFRP loop
 
-viewEvent :: forall m. MonadWidget m => MatrixEvent MatrixRoomEvent -> m Unit
-viewEvent evt =
+viewEvent :: forall m. MonadWidget m => SessionInfo -> Dynamic RoomData -> MatrixEvent MatrixRoomEvent -> m Unit
+viewEvent si drd evt =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "message-wrapper" ])
     $ do
-        elAttr "p" (Object.fromFoldable [ Tuple "class" "username" ]) $ text evt.sender
-        case evt.content of
-          Left errMsg -> text errMsg
-          Right (Message { body }) -> text body
-          Right (Membership { displayname, membership }) ->
-            text
-              $ case membership of Joined -> displayname <> " joined the room."
-          Right (RoomName n) -> text $ evt.sender <> " set the room's name to " <> n
-          Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
-          Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
+        dynamic_ $ drd <#> \rd -> do 
+          showAvatarOrDefault si (Map.lookup evt.sender rd.members >>= (\p -> p.avatar_url))
+        elClass "div" "msg" do
+          elAttr "p" (Object.fromFoldable [ Tuple "class" "username" ]) $ text evt.sender
+          elAttr "p" (Object.fromFoldable [ Tuple "class" "message" ]) $ case evt.content of
+            Left errMsg -> text errMsg
+            Right (Message { body }) -> text body
+            Right (Membership { profile, membership }) ->
+              text
+                $ case membership of Joined -> profile.displayname <> " joined the room."
+            Right (RoomName n) -> text $ evt.sender <> " set the room's name to " <> n
+            Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
+            Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
 
 leaveButton :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
 leaveButton si rId = do
@@ -100,7 +105,7 @@ joinedRoomView si rId rd = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
   elClass "div" "room-meta" do
-    elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text $ fromMaybe (unRoomId rId) rs.state.display_name)
+    elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text rs.display_name)
     leaveButton si rId
 
   -- A simple horizontal line separating the meta-area from the content.
@@ -109,8 +114,8 @@ joinedRoomView si rId rd = do
   -- List of room events
   (Tuple msgListNode _) <-
     elClass' "div" "room-messages"
-      $ dynamicList_ ((_.timeline.events) <$> rd)
-      $ \devt -> dynamic_ $ devt <#> viewEvent
+      $ dynamicList_ (_.timeline <$> rd)
+      $ \devt -> dynamic_ $ devt <#> (viewEvent si rd)
 
   -- The checkbox with label to auto-scroll to the bottom.
   -- SIDE EFFECTS: this widget affects the message list!

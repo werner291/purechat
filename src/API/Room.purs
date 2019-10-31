@@ -85,8 +85,6 @@ unbanUser si rId uId = do
         path = "/_matrix/client/r0/rooms/" <> encRid <> "/unban"
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
-
-
 type DirectoryEntry
     = { room_id :: RoomId }
 
