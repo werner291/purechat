@@ -58,89 +58,6 @@ tryLogin username password homeserver = do
         (StatusCode 401) -> throwError $ error  "Authentication failed, please verify credentials."
         _ -> throwError $ error $ "Unexpected server response HTTP " <> show (response.statusText)
 
-type RoomLeave
-  = {}
-
-type RoomInvite
-  = {}
-
--- | The parsed type resulting from a single call to the r0/sync API endpoint.
--- | Consider this type as containing arbitrary new information from the server
--- | that is to be merged with our current view of the server data.
-type SyncPollResult
-  = { rooms ::
-      { join :: Map RoomId RoomUpdate
-      , invite :: Map RoomId RoomInvite
-      , leave :: Map RoomId RoomLeave
-      }
-    , next_batch :: String
-    }
-
--- A set of updates specifically pertaining to one room.
-type RoomUpdate
-  = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
-    , new_state_events :: Array (MatrixEvent MatrixRoomEvent)
-    }
-
-decodeRoomUpdate :: Json -> Either String RoomUpdate
-decodeRoomUpdate json = do
-  o <- decodeJson json
-  timeline <- o .: "timeline"
-  new_timeline_events <- traverse decodeRoomEvent =<< timeline .: "events"
-  state <- o .: "state"
-  new_state_events <- traverse decodeRoomEvent =<< state .: "events"
-  pure
-    { new_timeline_events
-    , new_state_events
-    }
-
--- Essentially a JsonDecode instance for SyncPollResult, 
--- except we currently don't use a custom type for this.
-decodePollResult :: Json -> Either String SyncPollResult
-decodePollResult json = do
-  let
-    objToRoomMap :: forall a. Object a -> Map RoomId a
-    objToRoomMap o = foldlWithIndex (\k acc a -> Map.insert (RoomId k) a acc) Map.empty o
-  obj <- decodeJson json
-  rooms <- obj .: "rooms"
-  joinedRooms <- getField rooms "join"
-  join :: Map RoomId RoomUpdate <- traverse decodeRoomUpdate $ objToRoomMap joinedRooms
-  invitedRooms <- getField rooms "invite"
-  invite :: Map RoomId RoomInvite <- traverse decodeJson $ objToRoomMap invitedRooms
-  leaveRooms <- getField rooms "leave"
-  leave <- traverse decodeJson $ objToRoomMap leaveRooms
-  next_batch <- obj .: "next_batch"
-  pure { rooms: { join, invite, leave }, next_batch }
-
-pollSyncOnce :: SessionInfo -> Maybe String -> Aff SyncPollResult
-pollSyncOnce si since = do
-  resp <-
-    AX.request
-      ( AX.defaultRequest
-          { url = (si.homeserver <> "/_matrix/client/r0/sync" <> (Maybe.fromMaybe "?full_state=true" $ map (\x -> "?timeout=30000&since=" <> x) since))
-          , responseFormat = AXRF.json
-          , headers = [ RequestHeader "Authorization" ("Bearer " <> ((\(LoginToken tok) -> tok) si.token)) ]
-          }
-      )
-  case resp.status of
-    (StatusCode 200) -> case resp.body of
-      Left e -> throwError $ EE.error (AX.printResponseFormatError e)
-      Right jsonBody -> case decodePollResult jsonBody of
-        Left e -> throwError $ EE.error e
-        Right x -> pure x
-    _ -> throwError $ EE.error resp.statusText
-
-pollSyncProducer :: SessionInfo -> (SyncPollResult -> Aff Unit) -> Aff Unit
-pollSyncProducer si callback =
-  let
-    pollLoop :: Maybe String -> Aff Unit
-    pollLoop since = do
-      res <- pollSyncOnce si since
-      callback res
-      pollLoop $ Just res.next_batch
-  in
-    pollLoop Nothing
-
 authHeader :: SessionInfo -> RequestHeader
 authHeader si = RequestHeader "Authorization" ("Bearer " <> ((\(LoginToken tok) -> tok) si.token))
 
@@ -202,4 +119,3 @@ responseOkWithBody resp = case resp.status of
     Left e -> throwError (error $ printResponseFormatError e)
     Right b -> pure b
   _ -> throwError (error resp.statusText)
-
