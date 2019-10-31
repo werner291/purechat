@@ -1,7 +1,8 @@
 module Purechat.Widgets.CreateRoomWidget where
 
 import Prelude
-import API as API
+
+import API.Core (createRoom)
 import CustomCombinators (affButtonLoopSimplified, elClass, pulseSpinner)
 import Data.Maybe (Maybe(..))
 import Effect.Aff (message)
@@ -30,7 +31,7 @@ createRoomWidget si =
                 text $ ":" <> si.homeserver
                 pure alias
             createClicks <- buttonOnClick (pure Object.empty) $ text "Create room"
-            pure $ API.createRoom si <$> tagDyn alias createClicks
+            pure $ createRoom si <$> tagDyn alias createClicks
         , loading:
           do
             pulseSpinner

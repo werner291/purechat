@@ -1,8 +1,8 @@
 module Purechat.Purechat (primaryView) where
 
 import Prelude
-import API (UserProfile)
-import API as API
+
+import API.Profile (getProfile)
 import CustomCombinators (elClass, elemOnClick)
 import Data.Map (Map)
 import Data.Map as Map
@@ -12,7 +12,7 @@ import Purechat.ChannelDirectoryWidget (channelDirectory)
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.EditProfileWidget (editProfileWidget)
 import Purechat.ServerFeed (serverState)
-import Purechat.Types (RoomData, RoomId, SessionInfo)
+import Purechat.Types (RoomData, RoomId, SessionInfo, UserProfile)
 import Purechat.Widgets.CreateRoomWidget (createRoomWidget)
 import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (text)
@@ -72,7 +72,7 @@ modelStore si profileUpdates = do
   -- Keep a list of channels the user has currently joined
   joined_channels :: WeakDynamic (Map RoomId RoomData) <- serverState si
   -- Keep the most recent known version of the user's profile information
-  profile_from_server_state :: Dynamic (RequestState UserProfile) <- asyncRequest $ pure (API.getProfile si si.user_id)
+  profile_from_server_state :: Dynamic (RequestState UserProfile) <- asyncRequest $ pure (getProfile si si.user_id)
   current_profile <- holdWeakDyn $ leftmost [ profileUpdates, filterMapEvent fromLoaded $ changed profile_from_server_state ]
   pure { joined_channels, current_profile }
 

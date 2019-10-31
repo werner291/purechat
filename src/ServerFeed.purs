@@ -1,7 +1,8 @@
 module Purechat.ServerFeed (serverState) where
 
 import Prelude
-import API (RoomUpdate, SyncPollResult, RoomLeave, pollSyncProducer)
+
+import API.Core (RoomUpdate, SyncPollResult, RoomLeave, pollSyncProducer)
 import Data.Foldable (foldl)
 import Data.Map (Map)
 import Data.Map as Map

@@ -1,6 +1,6 @@
 module Purechat.CustomWidgets (showAvatarOrDefault) where
 
-import API as API
+import API.Media (mxcUrlToHttpUrl)
 import Affjax (URL)
 import Data.Maybe (Maybe, fromMaybe)
 import Data.Tuple (Tuple(..))
@@ -14,7 +14,7 @@ showAvatarOrDefault :: forall m. MonadWidget m => SessionInfo -> Maybe URL -> m 
 showAvatarOrDefault si url = do
   elAttr "img"
     ( Object.fromFoldable
-        [ Tuple "src" (API.mxcUrlToHttpUrl si $ fromMaybe "/static/unknown.png" url)
+        [ Tuple "src" (mxcUrlToHttpUrl si $ fromMaybe "/static/unknown.png" url)
         , Tuple "class" "avatar"
         ]
     )

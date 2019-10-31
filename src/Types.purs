@@ -2,6 +2,7 @@ module Purechat.Types where
 
 import Prelude
 
+import Affjax (URL)
 import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, (.:))
 import Data.Either (Either(..))
 import Data.Map (Map)
@@ -158,3 +159,9 @@ instance decodeJsonUserId :: DecodeJson UserId where
 
 instance encodeJsonUserId :: EncodeJson UserId where
   encodeJson (UserId u) = encodeJson u
+
+-------------
+-- Profile --
+-------------
+
+type UserProfile = { displayname :: String, avatar_url :: Maybe URL }

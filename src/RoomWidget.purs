@@ -1,8 +1,9 @@
 module RoomWidget (roomView, joinedRoomView) where
 
 import Prelude
-import API (sendMessage)
-import API as API
+
+import API.Core (leaveRoom, sendMessage)
+import API.Core as API
 import CustomCombinators (affButtonLoopSimplified, dynamicMaybe_, elClass, elClass', pulseSpinner)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -11,6 +12,7 @@ import Effect.Aff (message)
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
+import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
@@ -65,7 +67,7 @@ leaveButton si rId = do
       { ready:
         \_ -> do
           leave <- buttonOnClick (pure Object.empty) $ elClass "i" "fas fa-sign-out-alt" (pure unit)
-          pure $ (const $ API.leaveRoom si rId) <$> leave
+          pure $ (const $ leaveRoom si rId) <$> leave
       , loading:
         do
           pulseSpinner
@@ -75,7 +77,7 @@ leaveButton si rId = do
   pure unit
 
 autoScrollBar :: forall m. MonadWidget m => Node -> Dynamic RoomData -> m Unit
-autoScrollBar elt rd = do
+autoScrollBar msgListNode rd = do
 -- A horizontal strip of space reserved for the checkbox that causes the view to auto-scroll down.
   elClass "div" "auto-scoll-bar" do
     autoScroll <- checkbox true Object.empty
@@ -110,8 +112,11 @@ joinedRoomView si rId rd = do
       $ dynamicList_ ((_.timeline.events) <$> rd)
       $ \devt -> dynamic_ $ devt <#> viewEvent
 
-  autoScrollBar msgListNode rId
+  -- The checkbox with label to auto-scroll to the bottom.
+  -- SIDE EFFECTS: this widget affects the message list!
+  autoScrollBar msgListNode rd
 
+  -- Message composition widget, which will produce message events whenever "send" is clicked.
   msg <- composeMessageWidget
   currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))
   result <- asyncRequestMaybe currentRequest

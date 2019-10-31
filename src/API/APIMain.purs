@@ -1,52 +1,29 @@
-module API
-  ( tryLogin
-  , stringifyErrors
-  , pollSyncOnce
-  , pollSyncProducer
-  , SyncPollResult
-  , RoomUpdate
-  , RoomInvite
-  , RoomLeave
-  , sendMessage
-  , tryJoinRoom
-  , leaveRoom
-  , forgetRoom
-  , getProfile
-  , putProfile
-  , mxcUrlToHttpUrl
-  , uploadMXC
-  , UserProfile
-  , createRoom
-  ) where
+module API.Core where
 
 import Prelude
 
-import Affjax (Response, ResponseFormatError, URL, printResponseFormatError)
+import Affjax (Response, ResponseFormatError, printResponseFormatError)
 import Affjax as AX
 import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
-import Data.Argonaut (Json, decodeJson, getField, getFieldOptional, (.:), (.:?), (:=), (~>))
+import Data.Argonaut (Json, decodeJson, getField, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.FoldableWithIndex (foldlWithIndex)
 import Data.HTTP.Method (Method(..))
 import Data.Map (Map)
 import Data.Map (empty, insert) as Map
-import Data.Maybe (Maybe(..), fromJust)
+import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
-import Data.String as String
 import Data.Traversable (traverse)
 import Data.UUID as UUID
 import Effect.Aff (Aff, Error, error, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
-import Global (encodeURIComponent)
-import Partial.Unsafe (unsafePartial)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, UserId(..), decodeRoomEvent, unRoomId, unUserId)
-import Web.File.Blob (Blob)
 
 -- | Turns a nested `Either Error (Either String a)` into `Either String a`
 -- | by extracting the error message.
@@ -288,89 +265,7 @@ unbanUser si rId uId =
   in
     postJsonAuthed si path reqBody >>= responseOkOrBust
 
--- | Perform a GET request for the given URL
--- | This function automatically handles urls that use the mxc:// scheme (hence why it needs a session),
--- | and passes the other URLs on to Affjax to be handled.
--- getMediaWithPossibleMXC :: SessionInfo -> URL -> Aff Blob
--- getMediaWithPossibleMXC si url = do
---   case (String.stripPrefix (String.Pattern "mxc://") url) of
---     Just mxc -> getMXC si mxc
---     Nothing -> AX.get AR.blob url >>= responseOkWithBody
 
--- | Fetch an MXC resource.
--- getMXC :: SessionInfo -> String -> Aff Blob
--- getMXC si mediaId = do
---   resp <-
---     AX.request
---       ( AX.defaultRequest
---           { url = pathToUri si ("/_matrix/media/r0/download/" <> mediaId)
---           , responseFormat = AXRF.blob
---           , headers = [ authHeader si ]
---           , method = Left GET
---           }
---       )
---   responseOkWithBody resp
-
-mxcUrlToHttpUrl :: SessionInfo -> URL -> URL
-mxcUrlToHttpUrl si url =
-  case (String.stripPrefix (String.Pattern "mxc://") url) of
-    Just mxc -> pathToUri si ("/_matrix/media/r0/download/" <> mxc)
-    Nothing -> url
-
-type UserProfile
-  = { displayname :: String, avatar_url :: Maybe URL }
-
-getProfile :: SessionInfo -> UserId -> Aff UserProfile
-getProfile si uid = case encodeURIComponent $ unUserId uid of
-  Just encUid -> do
-    json <- responseOkWithBody =<< (getJsonAuthed si $ "/_matrix/client/r0/profile/" <> encUid)
-    let
-      decoded = do
-        o <- decodeJson json
-        displayname :: String <- o .: "displayname"
-        avatar_url :: Maybe String <- getFieldOptional o "avatar_url"
-        pure { displayname, avatar_url }
-    case decoded of
-      Right x -> pure x
-      Left e -> throwError $ error e
-  Nothing -> throwError $ error "UserId contains unencodeable characters."
-
--- unsafePartial should be safe since UserIDs shouldn't contain unencodeable characters
-urlEncodeUserdId :: UserId -> String
-urlEncodeUserdId (UserId uid) = (unsafePartial $ fromJust $ encodeURIComponent $ uid)
-
-putProfileAttribute :: SessionInfo -> UserId -> String -> String -> Aff Unit
-putProfileAttribute si uid key value = 
-  let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-      ( key := value
-          ~> JSON.jsonEmptyObject
-      )
-      
-    path = "/_matrix/client/r0/profile/" <> (urlEncodeUserdId uid) <> "/" <> key
-  in
-    putJsonAuthed si path reqBody >>= responseOkOrBust
-
-putProfileDisplayName :: SessionInfo -> String -> Aff Unit
-putProfileDisplayName si displayname = putProfileAttribute si si.user_id "displayname" displayname
-
-putProfileAvatarUrl :: SessionInfo -> Maybe URL -> Aff Unit
-putProfileAvatarUrl si avatar_url = 
-  let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody = ( "avatar_url" := avatar_url ~> JSON.jsonEmptyObject )
-    path :: String
-    path = "/_matrix/client/r0/profile/" <> (urlEncodeUserdId si.user_id) <> "/avatar_url"
-  in
-    putJsonAuthed si path reqBody >>= responseOkOrBust
-
-putProfile :: SessionInfo -> UserProfile -> Aff Unit
-putProfile si {displayname,avatar_url} = do
-  putProfileDisplayName si displayname
-  putProfileAvatarUrl si avatar_url
 
 type DirectoryEntry
   = { room_id :: RoomId }
@@ -414,21 +309,3 @@ createRoom si alias = do
   case decodeJson json of
     Left err -> throwError $ error err
     Right (dec :: {room_id::String}) -> pure $ RoomId dec.room_id
-
-uploadMXC :: SessionInfo -> Blob -> Aff URL
-uploadMXC si toUpload = do
-
-  json <- (AX.request
-    ( AX.defaultRequest
-        { url = pathToUri si "/_matrix/media/r0/upload"
-        , responseFormat = AXRF.json
-        , headers = [ authHeader si ]
-        , method = Left POST
-        , content = Just $ RB.blob toUpload
-        }
-    ) >>= responseOkWithBody)
-
-  case decodeJson json of
-    Left err -> throwError $ error err
-    Right ( dec :: { content_uri :: String} ) -> pure dec.content_uri
-

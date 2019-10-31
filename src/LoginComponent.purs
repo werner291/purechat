@@ -1,7 +1,7 @@
 module Purechat.LoginComponent where
 
 import Prelude
-import API (tryLogin)
+import API.Core (tryLogin)
 import Control.Monad.Cleanup (class MonadCleanup)
 import CustomCombinators (affButtonLoopSimplified, pulseSpinner)
 import Effect (Effect)

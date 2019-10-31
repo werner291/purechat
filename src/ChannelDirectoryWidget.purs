@@ -1,7 +1,7 @@
 module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
-import CustomCombinators (dynamicMaybe, elClass, elemOnClick)
+import CustomCombinators (elClass, elemOnClick)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -11,8 +11,8 @@ import Purechat.Types (RoomData, RoomId, mkRoomId, unRoomId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
-import Specular.FRP (Dynamic, Event, WeakDynamic, dynamic, leftmost, never, switch, switchWeakDyn, weakDynamic)
-import Specular.FRP.List (dynamicList, weakDynamicList)
+import Specular.FRP (Event, WeakDynamic, leftmost, never, switchWeakDyn, weakDynamic)
+import Specular.FRP.List (weakDynamicList)
 
 searchBar :: forall m. MonadWidget m => m (Event String)
 searchBar = do

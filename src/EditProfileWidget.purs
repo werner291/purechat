@@ -1,7 +1,7 @@
 module Purechat.EditProfileWidget (editProfileWidget) where
 
-import API (UserProfile)
-import API as API
+import API.Media (mxcUrlToHttpUrl, uploadMXC)
+import API.Profile (putProfile)
 import Affjax (URL)
 import CustomCombinators (affButtonLoop, elClass, pulseSpinner)
 import Data.Either (Either(..))
@@ -11,7 +11,7 @@ import Effect (Effect)
 import Effect.Exception (message)
 import Foreign.Object as Object
 import Prelude (Unit, bind, const, discard, identity, map, pure, unit, ($), (<$>), (<<<), (<>), (>>=))
-import Purechat.Types (SessionInfo)
+import Purechat.Types (SessionInfo, UserProfile)
 import Specular.Dom.Builder.Class (domEventWithSample, el, elAttr, elAttr', text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
@@ -27,7 +27,7 @@ showAvatarOrDefault :: forall m. MonadWidget m => SessionInfo -> Maybe URL -> m 
 showAvatarOrDefault si url = do
   elAttr "img"
     ( Object.fromFoldable
-        [ Tuple "src" (API.mxcUrlToHttpUrl si $ fromMaybe "/static/unknown.png" url)
+        [ Tuple "src" (mxcUrlToHttpUrl si $ fromMaybe "/static/unknown.png" url)
         , Tuple "class" "avatar"
         ]
     )
@@ -58,18 +58,18 @@ editProfileWidget si p =
                 NotRequested -> do
                   showAvatarOrDefault si p.avatar_url
                   fileChosen <- fileInputOnChange
-                  pure $ (API.uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+                  pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
                 Loading -> do
                   pulseSpinner
                   pure never
                 Loaded (Left err) -> do
                   showAvatarOrDefault si p.avatar_url
                   fileChosen <- fileInputOnChange
-                  pure $ (API.uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+                  pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
                 Loaded (Right mxc) -> do
                   showAvatarOrDefault si (Just mxc)
                   fileChosen <- fileInputOnChange
-                  pure $ (API.uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+                  pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
         av_url :: Dynamic (Maybe String) <- holdDyn p.avatar_url (map Just av_url_updates)
         let
           candidateProfile :: Dynamic UserProfile
@@ -82,16 +82,16 @@ editProfileWidget si p =
             $ case _ of
                 NotRequested -> do
                   clicks <- buttonOnClick (pure Object.empty) $ text "Save"
-                  pure $ (\pp -> API.putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
+                  pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
                 Loading -> do
                   pulseSpinner
                   pure never
                 Loaded (Left err) -> do
                   text $ "Error occurred: " <> (message err)
                   clicks <- buttonOnClick (pure Object.empty) $ text "Save"
-                  pure $ (\pp -> API.putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
+                  pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
                 Loaded (Right mxc) -> do
                   text $ "Profile updated successfully."
                   clicks <- buttonOnClick (pure Object.empty) $ text "Save"
-                  pure $ (\pp -> API.putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
+                  pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
         pure updt
