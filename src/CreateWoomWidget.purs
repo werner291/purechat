@@ -3,7 +3,7 @@ module Purechat.Widgets.CreateRoomWidget where
 import Prelude
 
 import API.Rooms (createRoom)
-import CustomCombinators (affButtonLoopSimplified, elClass, elemOnClick, pulseSpinner)
+import CustomCombinators (affButtonLoopSimplified, elClass, elemOnClick, pulseSpinner, elemOnClick)
 import Data.Maybe (Maybe(..))
 import Data.Set (Set)
 import Data.Set as Set
@@ -17,7 +17,6 @@ import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (textInputOnInput)
 import Specular.FRP (Dynamic, Event, dynamic, fixEvent, foldDyn, leftmost, switch, tagDyn)
 import Specular.FRP.List (dynamicList)
-import CustomCombinators (elemOnClick)
 
 data InviteeListAction
   = AddInvitee UserId

@@ -7,6 +7,7 @@ import Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Tuple (Tuple(..))
 import Foreign.Object as Object
+import Purechat.ServerFeed (KnownServerState)
 import Purechat.Types (RoomData, RoomId, mkRoomId, unRoomId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
@@ -26,8 +27,8 @@ searchBar = do
 
 -- A widget showing a short, compact list of all channels the user might currently be interested in.
 -- Returns an Event stream of room IDs
-channelDirectory :: forall m. MonadWidget m => WeakDynamic (Map RoomId RoomData) -> m (Event RoomId)
-channelDirectory joined_channels =
+channelDirectory :: forall m. MonadWidget m => WeakDynamic KnownServerState -> m (Event RoomId)
+channelDirectory st =
   elClass "div" "channel-directory" do
     directEnterName :: Event String <- searchBar
     let
@@ -38,6 +39,8 @@ channelDirectory joined_channels =
 
       viewrow :: WeakDynamic (Tuple RoomId RoomData) -> m (Event RoomId)
       viewrow d = switchWeakDyn <$> weakDynamic (d <#> clickableLi)
+
     el "h2" $ text "Joined rooms"
-    pickedFromJoined <- (switchWeakDyn <<< map leftmost) <$> el "ul" (weakDynamicList (Map.toUnfoldable <$> joined_channels) $ viewrow)
+    pickedFromJoined <- (switchWeakDyn <<< map leftmost) <$> el "ul" (weakDynamicList (Map.toUnfoldable <<< _.joined_rooms <$> st) $ viewrow)
+    
     pure $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined ]
