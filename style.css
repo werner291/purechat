@@ -117,3 +117,11 @@ hr.roomname-content-set {
     width: 100%;
     border: solid black 1px;
 }
+
+button.invitee-add { 
+    margin: 5mm 0;
+}
+
+i.invitee-remove {
+    margin: 0 2mm;
+}

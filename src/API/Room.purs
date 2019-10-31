@@ -7,6 +7,7 @@ import Data.Argonaut (decodeJson, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.Maybe (Maybe)
+import Data.Set (Set)
 import Effect.Aff (Aff, error, throwError)
 import Purechat.Types (RoomId(..), SessionInfo, UserId, unRoomId, unUserId)
 
@@ -103,13 +104,15 @@ getDirectory si filter from to = do
         Left err -> throwError $ error err
         Right dec -> pure dec
 
-createRoom :: SessionInfo -> String -> Aff RoomId
-createRoom si alias = do
+createRoom :: SessionInfo -> String -> Set UserId -> Aff RoomId
+createRoom si alias invitees = do
     let 
         reqBody :: JSON.Json
         reqBody =
             ( 
-            "room_alias_name" :=  alias ~> JSON.jsonEmptyObject 
+                "room_alias_name" :=  alias 
+                ~> "invite" :=  invitees 
+                ~> JSON.jsonEmptyObject 
             )
 
     json <- responseOkWithBody =<< (postJsonAuthed si "/_matrix/client/r0/createRoom" reqBody)
