@@ -2,7 +2,7 @@ module Purechat.Widgets.CreateRoomWidget where
 
 import Prelude
 
-import API.Core (createRoom)
+import API.Rooms (createRoom)
 import CustomCombinators (affButtonLoopSimplified, elClass, pulseSpinner)
 import Data.Maybe (Maybe(..))
 import Effect.Aff (message)

@@ -2,8 +2,8 @@ module RoomWidget (roomView, joinedRoomView) where
 
 import Prelude
 
-import API.Core (leaveRoom, sendMessage)
-import API.Core as API
+import API.Core (sendMessage)
+import API.Rooms (leaveRoom, tryJoinRoom)
 import CustomCombinators (affButtonLoopSimplified, dynamicMaybe_, elClass, elClass', pulseSpinner)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -133,7 +133,7 @@ joinRoomView si rId = do
             Just e -> text $ "Failed to join room: " <> (message e)
             Nothing -> pure unit
           tryJoin <- buttonOnClick (pure mempty) (text "Join room")
-          pure $ (const $ API.tryJoinRoom si (unRoomId rId)) <$> tryJoin
+          pure $ (const $ tryJoinRoom si (unRoomId rId)) <$> tryJoin
       , loading:
         do
           pulseSpinner

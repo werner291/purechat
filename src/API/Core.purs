@@ -8,7 +8,7 @@ import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
-import Data.Argonaut (Json, decodeJson, getField, (.:), (.:?), (:=), (~>))
+import Data.Argonaut (Json, decodeJson, getField, (.:), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.FoldableWithIndex (foldlWithIndex)
@@ -23,7 +23,7 @@ import Effect.Aff (Aff, Error, error, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, UserId(..), decodeRoomEvent, unRoomId, unUserId)
+import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, UserId(..), decodeRoomEvent, unRoomId)
 
 -- | Turns a nested `Either Error (Either String a)` into `Either String a`
 -- | by extracting the error message.
@@ -203,109 +203,3 @@ responseOkWithBody resp = case resp.status of
     Right b -> pure b
   _ -> throwError (error resp.statusText)
 
--- Attempt to join a room with a given room ID or alias.
--- Depending on permissions, this may fail.
-tryJoinRoom :: SessionInfo -> String -> Aff Unit
-tryJoinRoom si rIdOrAlias = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> rIdOrAlias <> "/join") JSON.jsonEmptyObject >>= responseOkOrBust
-
--- Leave a room that the user is in.
-leaveRoom :: SessionInfo -> RoomId -> Aff Unit
-leaveRoom si rId = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/leave") JSON.jsonEmptyObject >>= responseOkOrBust
-
--- Forget a room that the user is in.
-forgetRoom :: SessionInfo -> RoomId -> Aff Unit
-forgetRoom si rId = postJsonAuthed si ("/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/forget") JSON.jsonEmptyObject >>= responseOkOrBust
-
--- Kick a user from a room with a reason.
-kickUser :: SessionInfo -> RoomId -> UserId -> String -> Aff Unit
-kickUser si rId uId reason =
-  let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-      ( "user_id" := (unUserId uId)
-          ~> "reason"
-          := reason
-          ~> JSON.jsonEmptyObject
-      )
-
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/kick"
-  in
-    postJsonAuthed si path reqBody >>= responseOkOrBust
-
--- Ban a user from a room with a reason.
-banUser :: SessionInfo -> RoomId -> UserId -> String -> Aff Unit
-banUser si rId uId reason =
-  let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-      ( "user_id" := (unUserId uId)
-          ~> "reason"
-          := reason
-          ~> JSON.jsonEmptyObject
-      )
-
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/ban"
-  in
-    postJsonAuthed si path reqBody >>= responseOkOrBust
-
--- Unban a user from a room.
-unbanUser :: SessionInfo -> RoomId -> UserId -> Aff Unit
-unbanUser si rId uId =
-  let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody =
-      ( "user_id" := (unUserId uId)
-          ~> JSON.jsonEmptyObject
-      )
-
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId rId) <> "/unban"
-  in
-    postJsonAuthed si path reqBody >>= responseOkOrBust
-
-
-
-type DirectoryEntry
-  = { room_id :: RoomId }
-
-type DirectoryView
-  = { chunk :: Array DirectoryEntry
-    , next_batch :: Maybe String
-    , prev_batch :: Maybe String
-    , total_room_count_estimate :: Maybe Int
-    }
-
-getDirectory :: SessionInfo -> Maybe String -> Maybe String -> Maybe String -> Aff DirectoryView
-getDirectory si filter from to = do
-  json <- responseOkWithBody =<< getJsonAuthed si "/_matrix/client/r0/publicRooms"
-
-  let 
-    decoded :: Either String DirectoryView 
-    decoded = do
-      o <- decodeJson json
-      chunk <- o .: "chunk"
-      next_batch <- o .:? "next_batch"
-      prev_batch <- o .:? "prev_batch"
-      total_room_count_estimate <- o .:? "total_room_count_estimate"
-      pure { chunk, next_batch, prev_batch, total_room_count_estimate }
-
-  case decoded of
-    Left err -> throwError $ error err
-    Right dec -> pure dec
-
-createRoom :: SessionInfo -> String -> Aff RoomId
-createRoom si alias = do
-  let 
-    reqBody :: JSON.Json
-    reqBody =
-      ( 
-        "room_alias_name" :=  alias ~> JSON.jsonEmptyObject 
-      )
-
-  json <- responseOkWithBody =<< (postJsonAuthed si "/_matrix/client/r0/createRoom" reqBody)
-
-  case decodeJson json of
-    Left err -> throwError $ error err
-    Right (dec :: {room_id::String}) -> pure $ RoomId dec.room_id
