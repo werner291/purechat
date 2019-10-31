@@ -41,6 +41,7 @@ body {
 div.main-view {
     flex-grow: 1;
     padding: 2mm;
+    background-color: rgb(240, 240, 255);
 }
 
 .sidebar {
@@ -68,6 +69,7 @@ div.main-view {
 
 .channel-directory ul {
     padding-left: 5mm;
+    overflow-x: hidden;
 }
 
 .channel-directory li {
