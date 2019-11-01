@@ -25,7 +25,7 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
 import Specular.FRP.Async (startAff)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
@@ -185,8 +185,10 @@ performUpdates srp s = updateLeaves srp $ updateInvites srp $ updateJoins srp $ 
 -- A Dynamic representing the currently known user-relevant state of the Matrix server
 -- This data need not be entirely complete, it is simply what is known at the current
 -- time, and of that, only the parts that we currently need.
-serverState :: forall m. MonadFRP m => SessionInfo -> m (WeakDynamic KnownServerState)
-serverState si = do
+serverState :: forall m. MonadFRP m => SessionInfo -> Dynamic (Map RoomId String) -> m (WeakDynamic KnownServerState)
+serverState si since_per_room = do
   feed :: Event SyncPollResult <- syncFeed si
   folded <- foldDyn (\updt rooms -> Just $ performUpdates updt rooms) Nothing feed
   holdWeakDyn $ filterMapEvent identity (changed folded)
+
+-- type ViewRoom = Dynamic (Maybe String) -> WeakDynamic RoomData
