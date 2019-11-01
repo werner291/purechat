@@ -17,15 +17,16 @@ type MatrixEvent a
 class MatrixEventType a where
   eventTypeString :: a -> String
 
-data RoomMembership
-  = Joined
+data RoomMembership = Join | Leave | Invite
 
 instance decodeRoomMembership :: DecodeJson RoomMembership where
   decodeJson :: Json -> Either String RoomMembership
   decodeJson json = do
     t <- decodeJson json
     case t of
-      "join" -> Right Joined
+      "join" -> Right Join
+      "leave" -> Right Leave
+      "invite" -> Right Invite
       _ -> Left $ "Unknown join status: " <> t
 
 -- data GlobalEventType = MatrixRoomEvent MatrixRoomEvent

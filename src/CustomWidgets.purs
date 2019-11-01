@@ -1,11 +1,12 @@
 module Purechat.CustomWidgets (showAvatarOrDefault) where
 
-import API.Media (mxcUrlToHttpUrl)
+import Prelude
+
+import API.Media (mxcUrlToThumbnailHttpUrl)
 import Affjax (URL)
 import Data.Maybe (Maybe, fromMaybe)
 import Data.Tuple (Tuple(..))
 import Foreign.Object as Object
-import Prelude (Unit, pure, unit, ($))
 import Purechat.Types (SessionInfo)
 import Specular.Dom.Builder.Class (elAttr)
 import Specular.Dom.Widget (class MonadWidget)
@@ -14,7 +15,7 @@ showAvatarOrDefault :: forall m. MonadWidget m => SessionInfo -> Maybe URL -> m 
 showAvatarOrDefault si url = do
   elAttr "img"
     ( Object.fromFoldable
-        [ Tuple "src" (mxcUrlToHttpUrl si $ fromMaybe "/static/unknown.png" url)
+        [ Tuple "src" (fromMaybe "/static/unknown.png" (mxcUrlToThumbnailHttpUrl si 96 96 <$> url))
         , Tuple "class" "avatar"
         ]
     )

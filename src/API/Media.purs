@@ -23,6 +23,12 @@ mxcUrlToHttpUrl si url =
     Just mxc -> pathToUri si ("/_matrix/media/r0/download/" <> mxc)
     Nothing -> url
 
+mxcUrlToThumbnailHttpUrl :: SessionInfo -> Int -> Int -> URL -> URL
+mxcUrlToThumbnailHttpUrl si width height url =
+  case (String.stripPrefix (String.Pattern "mxc://") url) of
+    Just mxc -> pathToUri si ("/_matrix/media/r0/thumbnail/" <> mxc <> "?width=" <> (show width) <> "&height=" <> (show height))
+    Nothing -> url
+
 uploadMXC :: SessionInfo -> Blob -> Aff URL
 uploadMXC si toUpload = do
 

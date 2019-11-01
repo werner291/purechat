@@ -55,8 +55,9 @@ viewEvent si drd evt =
               let
                 sender_profile :: Maybe UserProfile
                 sender_profile = Map.lookup evt.sender rd.members
+
                 sender_displayname = case sender_profile of
-                  Just {displayname:(Just n)} -> n
+                  Just { displayname: (Just n) } -> n
                   _ -> unUserId evt.sender
               showAvatarOrDefault si (sender_profile >>= (\p -> p.avatar_url))
               elClass "div" "msg" do
@@ -67,7 +68,11 @@ viewEvent si drd evt =
                       Right (Message { body }) -> text body
                       Right (Membership { profile, membership }) ->
                         text
-                          $ case membership of Joined -> sender_displayname <> " joined the room."
+                          ( case membership of
+                              Join -> sender_displayname <> " joined the room."
+                              Invite -> sender_displayname <> " has been invited to the room."
+                              Leave -> sender_displayname <> " left room."
+                          )
                       Right (RoomName n) -> text $ sender_displayname <> " set the room's name to " <> n
                       Right (RoomTopic n) -> text $ sender_displayname <> " set the room's topic to " <> n
                       Right (RoomCanonicalAlias n) -> text $ sender_displayname <> " set the room's canonical alias to " <> n

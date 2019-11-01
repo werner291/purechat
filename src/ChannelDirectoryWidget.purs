@@ -2,7 +2,7 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
 
-import CustomCombinators (elClass, elemOnClick)
+import CustomCombinators (elClass, elemOnClick, pulseSpinner)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set as Set
@@ -13,7 +13,7 @@ import Purechat.Types (RoomData, RoomId, mkRoomId, unRoomId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
-import Specular.FRP (Event, WeakDynamic, leftmost, never, switchWeakDyn, weakDynamic, weakDynamic_)
+import Specular.FRP (Event, WeakDynamic, dynamic_, leftmost, never, switchWeakDyn, unWeakDynamic, weakDynamic, weakDynamic_)
 import Specular.FRP.List (weakDynamicList)
 
 searchBar :: forall m. MonadWidget m => m (Event String)
@@ -59,4 +59,10 @@ channelDirectory st =
     el "h2" $ text "Joined rooms"
     pickedFromJoined <- (switchWeakDyn <<< map leftmost) <$> el "ul" (weakDynamicList (Map.toUnfoldable <<< _.joined_rooms <$> st) $ viewrow)
     
+    dynamic_ $ (unWeakDynamic st) <#> case _ of 
+      Just _ -> pure unit
+      Nothing -> do
+        pulseSpinner
+        text "Loading channels..."
+
     pure $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined, pickedFromInvite ]
