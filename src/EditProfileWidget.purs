@@ -11,7 +11,7 @@ import Effect (Effect)
 import Effect.Exception (message)
 import Foreign.Object as Object
 import Prelude (Unit, bind, const, discard, identity, map, pure, unit, ($), (<$>), (<<<), (<>), (>>=))
-import Purechat.Types (SessionInfo, UserProfile)
+import Purechat.Types (SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Builder.Class (domEventWithSample, el, elAttr, elAttr', text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
@@ -52,7 +52,8 @@ editProfileWidget si p =
 
         displayname :: Dynamic String <- elClass "div" "input-group" do
           el "h3" $ text "Display Name"
-          textInputOnInput p.displayname Object.empty
+          text "This will not affect your User ID."
+          textInputOnInput (fromMaybe (unUserId si.user_id) (p.displayname)) Object.empty
 
         el "h3" $ text "Avatar"
 
@@ -78,9 +79,9 @@ editProfileWidget si p =
         let
           candidateProfile :: Dynamic UserProfile
           candidateProfile = do
-            d :: String <- displayname :: Dynamic String
-            a :: Maybe URL <- av_url
-            pure { displayname: d, avatar_url: a }
+            d <- displayname
+            a <- av_url
+            pure { displayname: Just d, avatar_url: a }
         updt <-
           affButtonLoop
             $ case _ of

@@ -24,14 +24,13 @@ import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId(..), RoomMembership, SessionInfo, decodeRoomEvent, unRoomId)
+import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
 import Specular.FRP (class MonadFRP, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
 import Specular.FRP.Async (startAff)
 
-
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomId -> RoomData -> String
-roomNameFromData rid { name, canonical_alias, members } = -- let heroesName =  members
+roomNameFromData rid { name, canonical_alias, members } = --let heroesName =  members 
   fromMaybe (unRoomId rid) $ Array.head $ filterMap identity [ name, canonical_alias ]
 
 updateRoomName :: RoomId -> RoomData -> RoomData
@@ -42,7 +41,6 @@ foldEventIntoRoomState rId st { content: Right (RoomName name) } = updateRoomNam
 foldEventIntoRoomState rId st { content: Right (RoomTopic topic) } = updateRoomName rId $ st { topic = Just topic }
 foldEventIntoRoomState rId st { content: Right (RoomCanonicalAlias cs) } = updateRoomName rId $ st { canonical_alias = Just cs }
 foldEventIntoRoomState rId st { content: Right (Membership m) } = updateRoomName rId $ st { members = Map.insert m.user_id m.profile st.members }
-
 foldEventIntoRoomState rId st _ = st
 
 appendToTimeline :: MatrixEvent MatrixRoomEvent -> RoomData -> RoomData
@@ -143,12 +141,22 @@ syncFeed si = do
   startAff $ pollSyncProducer si (\update -> liftEffect $ evt.fire update)
   pure evt.event
 
+  -- ru.new_state_events <> 
+
 -- data ServerStateStatus = LoadingState | Loaded (Map RoomId RoomData) | Error String
 updateJoins :: SyncPollResult -> Maybe KnownServerState -> KnownServerState
 updateJoins updt st =
   let
+    foldStateEvents :: Array (MatrixEvent MatrixRoomEvent) -> RoomId -> RoomData -> RoomData
+    foldStateEvents state_updates rid ird = foldl (\rd ev -> foldEventIntoRoomState rid rd ev) ird state_updates
+
     combineRoom :: RoomUpdate -> RoomId -> Maybe RoomData -> Maybe RoomData --Nothing (Just )
-    combineRoom ru rid currentData = Just $ foldl (\rd ev -> appendToTimeline ev $ foldEventIntoRoomState rid rd ev) (updateRoomName rid mempty) (ru.new_state_events <> ru.new_timeline_events)
+    combineRoom ru rid currentData = 
+      let
+        updateFrom = fromMaybe mempty currentData
+        foldAppend rd ev = appendToTimeline ev $ foldEventIntoRoomState rid rd ev
+        withStateUpdates = foldStateEvents ru.new_state_events rid updateFrom
+      in Just $ updateRoomName rid $ foldl foldAppend withStateUpdates ru.new_timeline_events
 
     foldTuple :: KnownServerState -> Tuple RoomId RoomUpdate -> KnownServerState
     foldTuple m (Tuple k ru) = m { joined_rooms = Map.alter (combineRoom ru k) k m.joined_rooms }

@@ -1,7 +1,6 @@
 module RoomWidget (roomView, joinedRoomView) where
 
 import Prelude
-
 import API.Core (sendMessage)
 import API.Rooms (leaveRoom, tryJoinRoom)
 import CustomCombinators (affButtonLoopSimplified, dynamicMaybe_, elClass, elClass', pulseSpinner)
@@ -13,7 +12,7 @@ import Effect.Aff (message)
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
-import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, unRoomId)
+import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, UserProfile, unRoomId, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEventWithSample, el, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
@@ -51,19 +50,27 @@ viewEvent :: forall m. MonadWidget m => SessionInfo -> Dynamic RoomData -> Matri
 viewEvent si drd evt =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "message-wrapper" ])
     $ do
-        dynamic_ $ drd <#> \rd -> do 
-          showAvatarOrDefault si (Map.lookup evt.sender rd.members >>= (\p -> p.avatar_url))
-        elClass "div" "msg" do
-          elAttr "p" (Object.fromFoldable [ Tuple "class" "username" ]) $ text evt.sender
-          elAttr "p" (Object.fromFoldable [ Tuple "class" "message" ]) $ case evt.content of
-            Left errMsg -> text errMsg
-            Right (Message { body }) -> text body
-            Right (Membership { profile, membership }) ->
-              text
-                $ case membership of Joined -> profile.displayname <> " joined the room."
-            Right (RoomName n) -> text $ evt.sender <> " set the room's name to " <> n
-            Right (RoomTopic n) -> text $ evt.sender <> " set the room's topic to " <> n
-            Right (RoomCanonicalAlias n) -> text $ evt.sender <> " set the room's canonical alias to " <> n
+        dynamic_ $ drd
+          <#> \rd -> do
+              let
+                sender_profile :: Maybe UserProfile
+                sender_profile = Map.lookup evt.sender rd.members
+                sender_displayname = case sender_profile of
+                  Just {displayname:(Just n)} -> n
+                  _ -> unUserId evt.sender
+              showAvatarOrDefault si (sender_profile >>= (\p -> p.avatar_url))
+              elClass "div" "msg" do
+                elAttr "p" (Object.fromFoldable [ Tuple "class" "username" ]) $ text sender_displayname
+                elAttr "p" (Object.fromFoldable [ Tuple "class" "message" ])
+                  $ case evt.content of
+                      Left errMsg -> text errMsg
+                      Right (Message { body }) -> text body
+                      Right (Membership { profile, membership }) ->
+                        text
+                          $ case membership of Joined -> sender_displayname <> " joined the room."
+                      Right (RoomName n) -> text $ sender_displayname <> " set the room's name to " <> n
+                      Right (RoomTopic n) -> text $ sender_displayname <> " set the room's topic to " <> n
+                      Right (RoomCanonicalAlias n) -> text $ sender_displayname <> " set the room's canonical alias to " <> n
 
 leaveButton :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
 leaveButton si rId = do
@@ -83,17 +90,16 @@ leaveButton si rId = do
 
 autoScrollBar :: forall m. MonadWidget m => Node -> Dynamic RoomData -> m Unit
 autoScrollBar msgListNode rd = do
--- A horizontal strip of space reserved for the checkbox that causes the view to auto-scroll down.
+  -- A horizontal strip of space reserved for the checkbox that causes the view to auto-scroll down.
   elClass "div" "auto-scoll-bar" do
     autoScroll <- checkbox true Object.empty
     text "Auto-scroll"
-      
-    let 
+    let
       elt = unsafeCoerce msgListNode
+
       scrollToBottomCond = do
         h <- scrollHeight elt
         setScrollTop h elt
-
     liftEffect do
       autoScrl <- pull $ readBehavior (current autoScroll)
       when autoScrl scrollToBottomCond
@@ -107,20 +113,16 @@ joinedRoomView si rId rd = do
   elClass "div" "room-meta" do
     elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text rs.display_name)
     leaveButton si rId
-
   -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
-
   -- List of room events
   (Tuple msgListNode _) <-
     elClass' "div" "room-messages"
       $ dynamicList_ (_.timeline <$> rd)
       $ \devt -> dynamic_ $ devt <#> (viewEvent si rd)
-
   -- The checkbox with label to auto-scroll to the bottom.
   -- SIDE EFFECTS: this widget affects the message list!
   autoScrollBar msgListNode rd
-
   -- Message composition widget, which will produce message events whenever "send" is clicked.
   msg <- composeMessageWidget
   currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))

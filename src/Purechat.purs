@@ -1,16 +1,17 @@
 module Purechat.Purechat (primaryView) where
 
 import Prelude
+
 import API.Profile (getProfile)
 import CustomCombinators (elClass, elemOnClick)
 import Data.Map as Map
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Foreign.Object as Object
 import Purechat.ChannelDirectoryWidget (channelDirectory)
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.EditProfileWidget (editProfileWidget)
 import Purechat.ServerFeed (KnownServerState, serverState)
-import Purechat.Types (RoomId, SessionInfo, UserProfile)
+import Purechat.Types (RoomId, SessionInfo, UserProfile, unUserId)
 import Purechat.Widgets.CreateRoomWidget (createRoomWidget)
 import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (text)
@@ -28,7 +29,7 @@ profileBar si profile =
               <#> case _ of
                   (Just prof) -> do
                     showAvatarOrDefault si prof.avatar_url
-                    elClass "p" "username" $ text $ prof.displayname
+                    elClass "p" "username" $ text $ fromMaybe (unUserId si.user_id) prof.displayname
                     elemOnClick "i" (Object.singleton "class" "fas fa-cog") $ pure unit
                   Nothing -> do
                     text $ "Fetching profile..."

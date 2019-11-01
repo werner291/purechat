@@ -4,7 +4,7 @@ import Prelude
 
 import API.Core (getJsonAuthed, putJsonAuthed, responseOkOrBust, responseOkWithBody)
 import Affjax (URL)
-import Data.Argonaut (decodeJson, getFieldOptional, (.:), (:=), (~>))
+import Data.Argonaut (class EncodeJson, decodeJson, encodeJson, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromJust)
@@ -20,8 +20,8 @@ getProfile si uid = case encodeURIComponent $ unUserId uid of
         let
             decoded = do
                 o <- decodeJson json
-                displayname :: String <- o .: "displayname"
-                avatar_url :: Maybe String <- getFieldOptional o "avatar_url"
+                displayname :: Maybe String <- o .:? "displayname"
+                avatar_url :: Maybe String <- o .:? "avatar_url"
                 pure { displayname, avatar_url }
         case decoded of
             Right x -> pure x
@@ -32,13 +32,13 @@ getProfile si uid = case encodeURIComponent $ unUserId uid of
 urlEncodeUserdId :: UserId -> String
 urlEncodeUserdId (UserId uid) = (unsafePartial $ fromJust $ encodeURIComponent $ uid)
 
-putProfileAttribute :: SessionInfo -> UserId -> String -> String -> Aff Unit
+putProfileAttribute :: forall a. EncodeJson a => SessionInfo -> UserId -> String -> a -> Aff Unit
 putProfileAttribute si uid key value = 
     let
     -- Body with message text and message type.
     reqBody :: JSON.Json
     reqBody =
-        ( key := value
+        ( key := encodeJson value
             ~> JSON.jsonEmptyObject
         )
         
@@ -46,19 +46,11 @@ putProfileAttribute si uid key value =
     in
     putJsonAuthed si path reqBody >>= responseOkOrBust
 
-putProfileDisplayName :: SessionInfo -> String -> Aff Unit
+putProfileDisplayName :: SessionInfo -> Maybe String -> Aff Unit
 putProfileDisplayName si displayname = putProfileAttribute si si.user_id "displayname" displayname
 
 putProfileAvatarUrl :: SessionInfo -> Maybe URL -> Aff Unit
-putProfileAvatarUrl si avatar_url = 
-    let
-        -- Body with message text and message type.
-        reqBody :: JSON.Json
-        reqBody = ( "avatar_url" := avatar_url ~> JSON.jsonEmptyObject )
-        path :: String
-        path = "/_matrix/client/r0/profile/" <> (urlEncodeUserdId si.user_id) <> "/avatar_url"
-    in
-        putJsonAuthed si path reqBody >>= responseOkOrBust
+putProfileAvatarUrl si avatar_url = putProfileAttribute si si.user_id "avatar_url" avatar_url
 
 putProfile :: SessionInfo -> UserProfile -> Aff Unit
 putProfile si {displayname,avatar_url} = do

@@ -10,7 +10,7 @@ import Data.Maybe (Maybe, fromMaybe)
 
 type MatrixEvent a
   = { event_id :: String
-    , sender :: String
+    , sender :: UserId
     , content :: Either String a
     }
 
@@ -38,13 +38,6 @@ data MatrixRoomEvent
   | RoomTopic String
   | RoomCanonicalAlias String
 
-instance matrixRoomEventMatrixEventType :: MatrixEventType MatrixRoomEvent where
-  eventTypeString (Message _) = "m.room.message"
-  eventTypeString (Membership _) = "m.room.membership"
-  eventTypeString (RoomName _) = "m.room.name"
-  eventTypeString (RoomTopic _) = "m.room.topic"
-  eventTypeString (RoomCanonicalAlias _) = "m.room.canonical_alias"
-
 -- | Decode a Json object as a room event.
 -- | Note that, if the event type is unrecognized or the "content" field of the event
 -- | fails to decode, an event with a Left "content" field is generated to stop individual
@@ -64,10 +57,9 @@ decodeRoomEvent json = do
         pure { event_id, sender, content: (Right (Message { body })) }
       "m.room.member" -> do
         content <- getField o "content"
-        displayname <- getField content "displayname"
+        displayname <- getFieldOptional content "displayname"
         avatar_url <- getFieldOptional content "avatar_url"
         membership <- getField content "membership"
-        
         pure { event_id, sender, content: (Right (Membership { profile:{displayname, avatar_url}, membership, user_id: UserId state_key })) }
       "m.room.name" -> do
         content <- getField o "content"
@@ -161,4 +153,5 @@ instance encodeJsonUserId :: EncodeJson UserId where
 -- Profile --
 -------------
 type UserProfile
-  = { displayname :: String, avatar_url :: Maybe URL }
+  = { displayname :: Maybe String
+    , avatar_url :: Maybe URL }

@@ -10,7 +10,7 @@ import Data.Maybe (Maybe(..))
 import Data.Set (Set)
 import Effect.Aff (Aff, error, throwError)
 import Global (encodeURIComponent)
-import Purechat.Types (RoomId(..), SessionInfo, UserId, unRoomId, unUserId)
+import Purechat.Types (class MatrixEventType, MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, UserId, decodeRoomEvent, unRoomId, unUserId)
 
 tryEncodeUriComponent :: String -> Aff String
 tryEncodeUriComponent inp = case encodeURIComponent inp of
@@ -22,7 +22,7 @@ tryEncodeUriComponent inp = case encodeURIComponent inp of
 tryJoinRoom :: SessionInfo -> String -> Aff Unit
 tryJoinRoom si rIdOrAlias = do
     encRid <- tryEncodeUriComponent rIdOrAlias
-    postJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <> "/join") JSON.jsonEmptyObject >>= responseOkOrBust
+    postJsonAuthed si ("/_matrix/client/r0/join/" <> encRid) JSON.jsonEmptyObject >>= responseOkOrBust
 
 -- Leave a room that the user is in.
 leaveRoom :: SessionInfo -> RoomId -> Aff Unit
@@ -84,6 +84,16 @@ unbanUser si rId uId = do
 
         path = "/_matrix/client/r0/rooms/" <> encRid <> "/unban"
     postJsonAuthed si path reqBody >>= responseOkOrBust
+
+-- getRoomState :: SessionInfo -> RoomId -> String -> String -> Aff (MatrixEvent MatrixRoomEvent)
+-- getRoomState si rId evType stateKey = do
+--     encRid <- tryEncodeUriComponent $ unRoomId rId
+--     encEvtype <- tryEncodeUriComponent evType
+--     encKey <- tryEncodeUriComponent stateKey
+--     res <- getJsonAuthed ("/_matrix/client/r0/rooms/" <> encRid <> "/state/" <> encEvtype <> "/" <> encKey) >>= responseOkWithBody
+--     case decodeRoomEvent res of
+--         Left e -> throwError $ error e
+--         Right e -> pure e
 
 type DirectoryEntry
     = { room_id :: RoomId }
