@@ -1,7 +1,6 @@
 module Purechat.ServerFeed (serverState, KnownServerState) where
 
 import Prelude
-
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
@@ -20,27 +19,33 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
+import Debug.Trace as Debug
 import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
+import Effect.Ref (read)
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
+import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newDynamic, newEvent, subscribeEvent_)
 import Specular.FRP.Async (startAff)
+import Specular.Internal.Effect (modifyRef, newRef, writeRef)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomId -> RoomData -> String
-roomNameFromData rid { name, canonical_alias, members } = --let heroesName =  members 
-  fromMaybe (unRoomId rid) $ Array.head $ filterMap identity [ name, canonical_alias ]
+roomNameFromData rid { name, canonical_alias, members } = fromMaybe (unRoomId rid) $ Array.head $ filterMap identity [ name, canonical_alias ]
 
 updateRoomName :: RoomId -> RoomData -> RoomData
 updateRoomName rId rd = rd { display_name = roomNameFromData rId rd }
 
 foldEventIntoRoomState :: RoomId -> RoomData -> MatrixEvent MatrixRoomEvent -> RoomData
 foldEventIntoRoomState rId st { content: Right (RoomName name) } = updateRoomName rId $ st { name = Just name }
+
 foldEventIntoRoomState rId st { content: Right (RoomTopic topic) } = updateRoomName rId $ st { topic = Just topic }
+
 foldEventIntoRoomState rId st { content: Right (RoomCanonicalAlias cs) } = updateRoomName rId $ st { canonical_alias = Just cs }
+
 foldEventIntoRoomState rId st { content: Right (Membership m) } = updateRoomName rId $ st { members = Map.insert m.user_id m.profile st.members }
+
 foldEventIntoRoomState rId st _ = st
 
 appendToTimeline :: MatrixEvent MatrixRoomEvent -> RoomData -> RoomData
@@ -53,7 +58,7 @@ type RoomInvite
   = {}
 
 type KnownServerState
-  = { joined_rooms :: Map RoomId RoomData
+  = { joined_rooms :: Map RoomId (Dynamic Int -> Dynamic RoomData)
     , invited_to :: Set RoomId
     }
 
@@ -73,6 +78,7 @@ type SyncPollResult
 type RoomUpdate
   = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
     , new_state_events :: Array (MatrixEvent MatrixRoomEvent)
+    , prev_batch :: PrevBatchToken
     }
 
 decodeRoomUpdate :: Json -> Either String RoomUpdate
@@ -80,11 +86,13 @@ decodeRoomUpdate json = do
   o <- decodeJson json
   timeline <- o .: "timeline"
   new_timeline_events <- traverse decodeRoomEvent =<< timeline .: "events"
+  prev_batch <- PrevBatchToken <$> timeline .: "prev_batch"
   state <- o .: "state"
   new_state_events <- traverse decodeRoomEvent =<< state .: "events"
   pure
     { new_timeline_events
     , new_state_events
+    , prev_batch
     }
 
 -- Essentially a JsonDecode instance for SyncPollResult, 
@@ -141,8 +149,7 @@ syncFeed si = do
   startAff $ pollSyncProducer si (\update -> liftEffect $ evt.fire update)
   pure evt.event
 
-  -- ru.new_state_events <> 
-
+-- ru.new_state_events <> 
 -- data ServerStateStatus = LoadingState | Loaded (Map RoomId RoomData) | Error String
 updateJoins :: SyncPollResult -> Maybe KnownServerState -> KnownServerState
 updateJoins updt st =
@@ -151,12 +158,26 @@ updateJoins updt st =
     foldStateEvents state_updates rid ird = foldl (\rd ev -> foldEventIntoRoomState rid rd ev) ird state_updates
 
     combineRoom :: RoomUpdate -> RoomId -> Maybe RoomData -> Maybe RoomData --Nothing (Just )
-    combineRoom ru rid currentData = 
+    combineRoom ru rid currentData =
       let
-        updateFrom = fromMaybe mempty currentData
+        updateFrom =
+          fromMaybe
+            { canonical_alias: Nothing
+            , display_name: unRoomId rid
+            , members: Map.empty
+            , name: Nothing
+            , timeline: []
+            , topic: Nothing
+            , from: ru.prev_batch
+            , events_requested: false
+            }
+            currentData
+
         foldAppend rd ev = appendToTimeline ev $ foldEventIntoRoomState rid rd ev
+
         withStateUpdates = foldStateEvents ru.new_state_events rid updateFrom
-      in Just $ updateRoomName rid $ foldl foldAppend withStateUpdates ru.new_timeline_events
+      in
+        Just $ updateRoomName rid $ foldl foldAppend withStateUpdates ru.new_timeline_events
 
     foldTuple :: KnownServerState -> Tuple RoomId RoomUpdate -> KnownServerState
     foldTuple m (Tuple k ru) = m { joined_rooms = Map.alter (combineRoom ru k) k m.joined_rooms }
@@ -169,26 +190,43 @@ updateJoins updt st =
 updateLeaves :: SyncPollResult -> KnownServerState -> KnownServerState
 updateLeaves srp s = s { joined_rooms = Map.difference s.joined_rooms srp.rooms.leave }
 
-updateInvites :: SyncPollResult -> KnownServerState -> KnownServerState
-updateInvites srp st =
-  st
-    { invited_to =
-      let
-        with_new_invites = Set.union (st.invited_to) (Map.keys srp.rooms.invite)
-      in
-        Set.difference with_new_invites (Map.keys srp.rooms.join)
-    }
-
+-- updateInvites :: SyncPollResult -> KnownServerState -> KnownServerState
+-- updateInvites srp st =
+--   st
+--     { invited_to =
+--       let
+--         with_new_invites = Set.union (st.invited_to) (Map.keys srp.rooms.invite)
+--       in
+--         Set.difference with_new_invites 
+--     }
 performUpdates :: SyncPollResult -> Maybe KnownServerState -> KnownServerState
 performUpdates srp s = updateLeaves srp $ updateInvites srp $ updateJoins srp $ s
 
 -- A Dynamic representing the currently known user-relevant state of the Matrix server
 -- This data need not be entirely complete, it is simply what is known at the current
 -- time, and of that, only the parts that we currently need.
-serverState :: forall m. MonadFRP m => SessionInfo -> Dynamic (Map RoomId String) -> m (WeakDynamic KnownServerState)
-serverState si since_per_room = do
-  feed :: Event SyncPollResult <- syncFeed si
-  folded <- foldDyn (\updt rooms -> Just $ performUpdates updt rooms) Nothing feed
-  holdWeakDyn $ filterMapEvent identity (changed folded)
+serverState :: forall m. MonadFRP m => SessionInfo -> m (WeakDynamic KnownServerState)
+serverState si = do
+  { event, fire } <- newEvent
+  st_rooms <- liftEffect $ newRef Map.empty
+  st_invites <- liftEffect $ newRef Set.empty
+  subscribeEvent_
+    ( \spr -> do
+        rooms <- read st_rooms
+        invites <- read st_invites
+        -- TODO
+        let
+          new_invites = Set.difference (Set.union invites (Map.keys spr.rooms.invite)) (Map.keys spr.rooms.join)
 
--- type ViewRoom = Dynamic (Maybe String) -> WeakDynamic RoomData
+        writeRef st_invites new_invites
+
+        fire
+          { joined_rooms: rooms <#> _.dynamic
+          , invited_to: invites
+          }
+    )
+    syncFeed
+    si
+  -- folded <- foldDyn (\updt rooms -> Just $ performUpdates updt rooms) Nothing feed
+  holdWeakDyn event --filterMapEvent identity (changed folded)
+ -- type ViewRoom = Dynamic (Maybe String) -> WeakDynamic RoomData

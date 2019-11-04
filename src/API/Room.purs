@@ -8,9 +8,10 @@ import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Set (Set)
+import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
 import Global (encodeURIComponent)
-import Purechat.Types (class MatrixEventType, MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, UserId, decodeRoomEvent, unRoomId, unUserId)
+import Purechat.Types (MatrixEvent, MatrixRoomEvent, PrevBatchToken(..), RoomId(..), SessionInfo, UserId, decodeRoomEvent, unRoomId, unUserId)
 
 tryEncodeUriComponent :: String -> Aff String
 tryEncodeUriComponent inp = case encodeURIComponent inp of
@@ -139,3 +140,26 @@ createRoom si alias invitees = do
     case decodeJson json of
         Left err -> throwError $ error err
         Right (dec :: {room_id::String}) -> pure $ RoomId dec.room_id
+
+getEventsUpto :: SessionInfo -> RoomId -> PrevBatchToken -> Aff { from :: Maybe PrevBatchToken
+                                                                , to :: Maybe PrevBatchToken
+                                                                , chunk :: Array (MatrixEvent MatrixRoomEvent)
+                                                                , state :: Array (MatrixEvent MatrixRoomEvent) }
+getEventsUpto si rId upto = do 
+    encRid <- tryEncodeUriComponent $ unRoomId rId
+    res <- getJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <>"/messages")
+    json <- responseOkWithBody res
+
+    let 
+        dec = do
+            o <- decodeJson json
+            chunk <- traverse decodeRoomEvent =<< o .: "chunk"
+            state <- traverse decodeRoomEvent =<< o .: "state"
+            from <- map PrevBatchToken <$> o .:? "from"
+            to <- map PrevBatchToken <$> o .:? "to"
+            pure {chunk,state,from,to}
+
+    case dec of
+        Left err -> throwError $ error err
+        Right r-> pure r
+        

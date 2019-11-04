@@ -8,7 +8,7 @@ import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
-import Data.Argonaut (Json, decodeJson, getField, (.:), (:=), (~>))
+import Data.Argonaut (class DecodeJson, Json, decodeJson, getField, (.:), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.FoldableWithIndex (foldlWithIndex)
@@ -119,3 +119,11 @@ responseOkWithBody resp = case resp.status of
     Left e -> throwError (error $ printResponseFormatError e)
     Right b -> pure b
   _ -> throwError (error resp.statusText)
+
+
+responseOkWithJsonBody :: forall b. DecodeJson b => Response (Either ResponseFormatError Json) -> Aff b
+responseOkWithJsonBody resp = do
+  json <- responseOkWithBody resp
+  case decodeJson json of
+    Left e -> throwError $ error e
+    Right r -> pure r
