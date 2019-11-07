@@ -6,6 +6,7 @@ import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, enco
 import Data.Either (Either(..))
 import Data.Map (Map)
 import Data.Maybe (Maybe, fromMaybe)
+import Specular.FRP (Dynamic)
 
 type MatrixEvent a
   = { event_id :: String
@@ -87,7 +88,6 @@ newtype PrevBatchToken
 unPrevBatchToken :: PrevBatchToken -> String
 unPrevBatchToken (PrevBatchToken t) = t
 
--- data BatchPage = BatchPage PrevBatchToken Int
 -- | Record describing all available and known information about a room
 type RoomData
   = { timeline :: Array (MatrixEvent MatrixRoomEvent) -- May eventually be replaced with a more high-level view of the room
@@ -164,7 +164,6 @@ instance encodeJsonUserId :: EncodeJson UserId where
 -------------
 -- Profile --
 -------------
-
 type UserProfile
   = { displayname :: Maybe String
     , avatar_url :: Maybe URL
