@@ -180,10 +180,13 @@ handleJoin si (Tuple rId ru) updates = do
 
     rus :: Event RoomUpdate
     rus = filterMapEvent (\spr -> Map.lookup rId spr.rooms.join) updates
+
   messages :: Dynamic (Array (MatrixEvent MatrixRoomEvent)) <-
-    foldDyn (\ru' a -> Array.slice 0 100 $ a <> ru'.new_events) [] rus
+    foldDyn (\ru' a -> Array.takeEnd 100 $ a <> ru'.new_events) [] rus
+
   meta :: Dynamic RoomMeta <-
     foldDyn (\ru' m -> Array.foldl (flip foldEventIntoRoomState) m ru'.new_events) init_meta rus
+
   pure
     { messages: const $ pure messages
     , meta
@@ -195,26 +198,29 @@ handleJoin si (Tuple rId ru) updates = do
 serverState :: forall m. MonadFRP m => SessionInfo -> m (WeakDynamic (KnownServerState m))
 serverState si = do
   updates <- (syncFeed si) :: m (Event SyncPollResult)
-  let 
+  let
     foldStepTuple :: Map RoomId (JoinedRoom m) -> Tuple RoomId RoomUpdate -> InnerFRP (Map RoomId (JoinedRoom m))
     foldStepTuple st (Tuple rId ru) = case (Map.lookup rId st) of
       Just _ -> pure st
       Nothing -> do
         jr <- (handleJoin si (Tuple rId ru) updates) :: InnerFRP (JoinedRoom m)
         pure $ Map.insert rId jr st
+
     foldStep :: SyncPollResult -> Map RoomId (JoinedRoom m) -> InnerFRP (Map RoomId (JoinedRoom m))
     foldStep spr st = do
-      let tuples = Map.toUnfoldable $ Map.difference spr.rooms.join st
-      Array.foldM foldStepTuple Map.empty tuples
+      let
+        tuples = Map.toUnfoldable $ Map.difference spr.rooms.join st
+      Array.foldM foldStepTuple st tuples
   joined_rooms <- (foldDynM foldStep Map.empty updates) :: m _
   invited_to <-
-    (foldDyn
-      ( \updt st ->
-          Set.difference (Set.union st (Map.keys updt.rooms.invite)) (Map.keys updt.rooms.join)
-      )
-      Set.empty
-      updates) :: m _
-
+    ( foldDyn
+        ( \updt st ->
+            Set.difference (Set.union st (Map.keys updt.rooms.invite)) (Map.keys updt.rooms.join)
+        )
+        Set.empty
+        updates
+    ) ::
+      m _
   delayTillFirstUpdate
     $ do
         j <- joined_rooms
