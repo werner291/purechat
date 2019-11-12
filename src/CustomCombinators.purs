@@ -1,14 +1,17 @@
 module CustomCombinators where
 
 import Prelude
-
+import Control.Monad.Cleanup (onCleanup)
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, jsonParser, stringify)
 import Data.Array as Array
 import Data.Either (Either(..), hush)
 import Data.Foldable (class Foldable, for_)
+import Data.List.Lazy (List(..))
 import Data.Map (Map, lookup)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
+import Data.Maybe as Maybe
+import Data.String.Gen (genDigitString)
 import Data.Traversable (class Traversable, for, traverse)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, try)
@@ -21,7 +24,7 @@ import Specular.Dom.Widget (class MonadWidget)
 import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event(..), Pull, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, holdDyn, holdWeakDyn, never, newDynamic, newEvent, sampleAt, subscribeEvent_, switch, unWeakDynamic)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
 import Specular.FRP.List (dynamicList, dynamicList_)
-import Specular.Internal.Effect (newRef)
+import Specular.Internal.Effect (newRef, readRef, writeRef)
 import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
 
 -- | Fires an event with the current value of the behavior 
@@ -125,17 +128,44 @@ elemOnClick tagName attrs inner = do
 
 fanOut :: forall f k v m. MonadFRP m => Ord k => Traversable f => Event (f (Tuple k v)) -> m (Dynamic (Map k (Event v)))
 fanOut ev = do
-
-  {dynamic, read, set} <- newDynamic Map.empty
-
-  flip subscribeEvent_ ev $ \(tuples :: f (Tuple k v)) -> for_ tuples $ \(Tuple k v) -> do
-    st <- read
-    case lookup k st of
-      Just {event,fire} -> 
-        fire v
-      Nothing -> do
-        {event,fire} <- newEvent
-        set $ Map.insert k {event,fire} st
-        fire v
-  
+  { dynamic, read, set } <- newDynamic Map.empty
+  flip subscribeEvent_ ev
+    $ \(tuples :: f (Tuple k v)) ->
+        for_ tuples
+          $ \(Tuple k v) -> do
+              st <- read
+              case lookup k st of
+                Just { event, fire } -> fire v
+                Nothing -> do
+                  { event, fire } <- newEvent
+                  set $ Map.insert k { event, fire } st
+                  fire v
   pure $ dynamic <#> map _.event
+
+fanIn ::
+  forall a m.
+  MonadFRP m =>
+  (List (Dynamic a) -> Dynamic a) ->
+  m
+    { subscribe :: Dynamic a -> m (Dynamic a)
+    , output :: Dynamic a
+    }
+fanIn combiner = do
+  { dynamic, set, read } <- newDynamic (Map.empty :: Map Int (Dynamic a))
+
+  let
+    subscribe :: Dynamic a -> m (Dynamic a)
+    subscribe inp =  do
+      subs <- liftEffect read
+      let
+        k = Maybe.fromMaybe 0 (Map.findMax subs <#> _.key + 1)
+      liftEffect $ set $ Map.insert k inp subs
+      onCleanup
+        $ do
+            subs <- read
+            set $ Map.delete k subs
+      pure dynamic
+
+    output = combiner =<< (Map.values <$> dynamic)
+
+  pure { subscribe, output }

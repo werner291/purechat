@@ -1,7 +1,6 @@
 module Purechat.ServerFeed (serverState, KnownServerState, JoinedRoom, RoomMeta) where
 
 import Prelude
-
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
@@ -167,7 +166,6 @@ delayTillFirstUpdate d = do
 
 handleJoin :: forall m. MonadFRP m => SessionInfo -> Tuple RoomId RoomUpdate -> Event SyncPollResult -> InnerFRP (JoinedRoom m)
 handleJoin si (Tuple rId ru) updates = do
-  -- { dynamic: msg_dyn, read: msg_read, set: msg_set } <- newDynamic []
   let
     init_meta =
       { room_id: rId
@@ -181,14 +179,17 @@ handleJoin si (Tuple rId ru) updates = do
     rus :: Event RoomUpdate
     rus = filterMapEvent (\spr -> Map.lookup rId spr.rooms.join) updates
 
-  messages :: Dynamic (Array (MatrixEvent MatrixRoomEvent)) <-
-    foldDyn (\ru' a -> Array.takeEnd 100 $ a <> ru'.new_events) [] rus
+    new_events :: Event (Array (MatrixEvent MatrixRoomEvent))
+    new_events = rus <#> _.new_events
 
+  messages :: Dynamic (Array (MatrixEvent MatrixRoomEvent)) <-
+    foldDyn (\new_events a -> Array.takeEnd 100 $ a <> new_events) [] new_events
   meta :: Dynamic RoomMeta <-
     foldDyn (\ru' m -> Array.foldl (flip foldEventIntoRoomState) m ru'.new_events) init_meta rus
-
   pure
-    { messages: const $ pure messages
+    { messages:
+      \reqMsg -> do
+        pure messages
     , meta
     }
 
@@ -226,4 +227,3 @@ serverState si = do
         j <- joined_rooms
         i <- invited_to
         pure { joined_rooms: j, invited_to: i }
- -- delayTillFirstUpdate --   =<< foldDynEffect --       ( \srp kss -> do --           new_joins <- traverse $ handleJoin <$> Map.toUnfoldable $ Map.difference srp.rooms.join kss.joined_rooms --           pure kss --       ) --       { invited_to: (Set.empty :: Set RoomId), joined_rooms: Map.empty } --       updates -- holdDyn $ sampleAt ?wut (current $ unWeakDynamic rooms) --   { dynamic: st_dyn, read: st_read, set: st_set } <- --     liftEffect $ newDynamic ({ st_rooms: Map.empty, st_invites: Set.empty } :: InternalState m) --   subscribeEvent_ --     ( \(spr :: SyncPollResult) -> do --         st <- st_read --         st' <- foldSrpStep si spr st --         st_set st' --     ) --     updates --   let --     extractOutput :: InternalState m -> KnownServerState m --     extractOutput st = --       { invited_to: st.st_invites --       , joined_rooms: (map (_.dynamic) st.st_rooms) --       } --   holdWeakDyn $ changed (st_dyn <#> extractOutput)
