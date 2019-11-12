@@ -139,34 +139,3 @@ fanOut ev = do
         fire v
   
   pure $ dynamic <#> map _.event
-
--- foldDynM :: forall m a b. MonadFRP m => (a -> b -> Pull b) -> b -> Event a -> m (Dynamic b)
--- foldDynM f initial event = do
---   ref <- liftEffect $ newRef initial
---   updateOrReadValue <-
---     liftEffect
---       $ oncePerFramePullWithIO
---           ( do
---               evt <- readBehavior event.occurence
---               case evt of
---                 Just occurence -> do
---                   oldValue <- pullReadRef ref
---                   f occurence oldValue
---                 Nothing -> pure oldValue
---           )
---       $ \m_newValue -> do
---           oldValue <- readRef ref
---           case m_newValue of
---             Just occurence -> do
---               let
---                 newValue = f occurence oldValue
---               writeRef ref newValue
---               pure newValue
---             Nothing -> pure oldValue
---   unsub <- liftEffect $ event.subscribe $ void $ framePull $ updateOrReadValue
---   onCleanup unsub
---   pure
---     $ Dynamic
---         { value: Behavior updateOrReadValue
---         , change: map (\_ -> unit) (Event event)
---         }
