@@ -1,10 +1,15 @@
 module CustomCombinators where
 
 import Prelude
+
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, jsonParser, stringify)
 import Data.Array as Array
 import Data.Either (Either(..), hush)
+import Data.Foldable (class Foldable, for_)
+import Data.Map (Map, lookup)
+import Data.Map as Map
 import Data.Maybe (Maybe(..))
+import Data.Traversable (class Traversable, for, traverse)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, try)
 import Effect.Class (liftEffect)
@@ -13,9 +18,10 @@ import Foreign.Object as Object
 import Specular.Dom.Browser (Node, TagName, Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, holdDyn, holdWeakDyn, never, sampleAt, subscribeEvent_, switch, unWeakDynamic)
+import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event(..), Pull, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, holdDyn, holdWeakDyn, never, newDynamic, newEvent, sampleAt, subscribeEvent_, switch, unWeakDynamic)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
 import Specular.FRP.List (dynamicList, dynamicList_)
+import Specular.Internal.Effect (newRef)
 import Web.Storage.Storage (Storage, getItem, removeItem, setItem)
 
 -- | Fires an event with the current value of the behavior 
@@ -116,3 +122,51 @@ elemOnClick :: forall m. MonadWidget m => String -> Attrs -> m Unit -> m (Event 
 elemOnClick tagName attrs inner = do
   Tuple node _ <- elAttr' tagName attrs inner
   domEventWithSample (\_ -> pure unit) "click" node
+
+fanOut :: forall f k v m. MonadFRP m => Ord k => Traversable f => Event (f (Tuple k v)) -> m (Dynamic (Map k (Event v)))
+fanOut ev = do
+
+  {dynamic, read, set} <- newDynamic Map.empty
+
+  flip subscribeEvent_ ev $ \(tuples :: f (Tuple k v)) -> for_ tuples $ \(Tuple k v) -> do
+    st <- read
+    case lookup k st of
+      Just {event,fire} -> 
+        fire v
+      Nothing -> do
+        {event,fire} <- newEvent
+        set $ Map.insert k {event,fire} st
+        fire v
+  
+  pure $ dynamic <#> map _.event
+
+-- foldDynM :: forall m a b. MonadFRP m => (a -> b -> Pull b) -> b -> Event a -> m (Dynamic b)
+-- foldDynM f initial event = do
+--   ref <- liftEffect $ newRef initial
+--   updateOrReadValue <-
+--     liftEffect
+--       $ oncePerFramePullWithIO
+--           ( do
+--               evt <- readBehavior event.occurence
+--               case evt of
+--                 Just occurence -> do
+--                   oldValue <- pullReadRef ref
+--                   f occurence oldValue
+--                 Nothing -> pure oldValue
+--           )
+--       $ \m_newValue -> do
+--           oldValue <- readRef ref
+--           case m_newValue of
+--             Just occurence -> do
+--               let
+--                 newValue = f occurence oldValue
+--               writeRef ref newValue
+--               pure newValue
+--             Nothing -> pure oldValue
+--   unsub <- liftEffect $ event.subscribe $ void $ framePull $ updateOrReadValue
+--   onCleanup unsub
+--   pure
+--     $ Dynamic
+--         { value: Behavior updateOrReadValue
+--         , change: map (\_ -> unit) (Event event)
+--         }

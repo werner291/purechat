@@ -7,14 +7,13 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set as Set
 import Data.Tuple (Tuple(..))
-import Effect (Effect)
 import Foreign.Object as Object
-import Purechat.ServerFeed (KnownServerState)
-import Purechat.Types (RoomData, RoomId, mkRoomId, unRoomId)
+import Purechat.ServerFeed (KnownServerState, RoomMeta)
+import Purechat.Types (RoomId, mkRoomId, unRoomId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
-import Specular.FRP (Dynamic, Event, WeakDynamic, dynamic, dynamic_, leftmost, never, switch, switchWeakDyn, unWeakDynamic, weakDynamic, weakDynamic_, weaken)
+import Specular.FRP (Dynamic, Event, WeakDynamic, dynamic, dynamic_, leftmost, never, switch, switchWeakDyn, unWeakDynamic, weakDynamic, weakDynamic_)
 import Specular.FRP.List (weakDynamicList)
 
 searchBar :: forall m. MonadWidget m => m (Event String)
@@ -34,13 +33,20 @@ channelDirectory st =
   elClass "div" "channel-directory" do
     directEnterName :: Event String <- searchBar
     let
-      clickableLi :: (Tuple RoomId RoomData) -> m (Event RoomId)
-      clickableLi (Tuple rId rd) = do
-        clicks :: Event Unit <- elemOnClick "li" mempty $ text rd.display_name
+      clickableLi :: Tuple RoomId RoomMeta -> m (Event RoomId)
+      clickableLi (Tuple rId {display_name}) = do
+        clicks :: Event Unit <- elemOnClick "li" mempty $ text display_name
         pure $ const rId <$> clicks
 
-      viewrow :: WeakDynamic (Tuple RoomId RoomData) -> m (Event RoomId)
-      viewrow d = switchWeakDyn <$> weakDynamic ( d <#> clickableLi )
+      viewrow :: WeakDynamic (Tuple RoomId (Dynamic RoomMeta)) -> m (Event RoomId)
+      viewrow d = do
+        x <- weakDynamic $ d <#> \(Tuple rId dyn_meta) -> do
+          dynev <- dynamic $ dyn_meta <#> \meta -> clickableLi (Tuple rId meta)
+          pure $ switch dynev
+        pure $ switchWeakDyn x
+        -- switchWeakDyn <$> weakDynamic $ d <#> \(Tuple rId viewdata) -> do
+        --   dynamic_ $ (viewdata $ pure 0) <#> \rd -> clickableLi (Tuple rId rd)
+        --   ?wut
 
       -- TODO get the display name in here somehow
       clickableLiInvite :: RoomId -> m (Event RoomId)
@@ -58,7 +64,7 @@ channelDirectory st =
     el "h2" $ text "Joined rooms"
     pickedFromJoined <-
       (switchWeakDyn <<< map leftmost)
-        <$> el "ul" (weakDynamicList (Map.toUnfoldable <<< _.joined_rooms <$> st) $ viewrow)
+        <$> el "ul" (weakDynamicList (Map.toUnfoldable <<< _.joined_rooms <$> st) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))--  viewrow (Tuple rId (dm <#> _.meta)))
     dynamic_ $ (unWeakDynamic st)
       <#> case _ of
           Just _ -> pure unit

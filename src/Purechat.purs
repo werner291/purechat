@@ -37,7 +37,7 @@ profileBar si profile =
           )
     pure { openProfile: openProfile }
 
-sidebar :: forall m. MonadWidget m => SessionInfo -> WeakDynamic UserProfile -> WeakDynamic KnownServerState -> m { channelPicked :: Event (RoomId), createRoom :: Event Unit, openProfile :: Event Unit }
+sidebar :: forall m. MonadWidget m => SessionInfo -> WeakDynamic UserProfile -> WeakDynamic (KnownServerState m) -> m { channelPicked :: Event (RoomId), createRoom :: Event Unit, openProfile :: Event Unit }
 sidebar si profile st =
   elClass "div" "sidebar" do
     { openProfile } <- profileBar si profile
@@ -64,12 +64,12 @@ modelStore ::
   SessionInfo ->
   Event UserProfile ->
   m
-    { server_state :: WeakDynamic KnownServerState
+    { server_state :: WeakDynamic (KnownServerState m)
     , current_profile :: WeakDynamic UserProfile
     }
 modelStore si profileUpdates = do
   -- Keep a list of channels the user has currently joined
-  server_state <- serverState si (pure Map.empty)
+  server_state <- serverState si
   -- Keep the most recent known version of the user's profile information
   profile_from_server_state :: Dynamic (RequestState UserProfile) <- asyncRequest $ pure (getProfile si si.user_id)
   current_profile <- holdWeakDyn $ leftmost [ profileUpdates, filterMapEvent fromLoaded $ changed profile_from_server_state ]

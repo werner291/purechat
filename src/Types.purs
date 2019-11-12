@@ -89,16 +89,16 @@ unPrevBatchToken :: PrevBatchToken -> String
 unPrevBatchToken (PrevBatchToken t) = t
 
 -- | Record describing all available and known information about a room
-type RoomData
-  = { timeline :: Array (MatrixEvent MatrixRoomEvent) -- May eventually be replaced with a more high-level view of the room
-    , name :: Maybe String -- Explicitly-set name of the room
-    , canonical_alias :: Maybe String -- Room's canonical alias
-    , topic :: Maybe String -- A topic, if the room has one
-    , members :: Map UserId UserProfile -- A Map of room participants and their profile
-    , display_name :: String -- Cached version of `roomNameFromData`
-    , from :: PrevBatchToken -- The timestamp upto which events are incorporated into the RoomData
-    , events_requested :: Boolean -- Whether the backend is currently fetching more events
-    }
+-- type Room
+--   = { timeline :: Array (MatrixEvent MatrixRoomEvent) -- May eventually be replaced with a more high-level view of the room
+--     , name :: Maybe String -- Explicitly-set name of the room
+--     , canonical_alias :: Maybe String -- Room's canonical alias
+--     , topic :: Maybe String -- A topic, if the room has one
+--     , members :: Map UserId UserProfile -- A Map of room participants and their profile
+--     , display_name :: String -- Cached version of `roomNameFromData`
+--     , from :: PrevBatchToken -- The timestamp upto which events are incorporated into the RoomData
+--     , events_requested :: Boolean -- Whether the backend is currently fetching more events
+--     }
 
 type SessionInfo
   = { token :: LoginToken, homeserver :: String, user_id :: UserId }

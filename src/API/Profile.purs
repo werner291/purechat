@@ -4,7 +4,7 @@ import Prelude
 
 import API.Core (getJsonAuthed, putJsonAuthed, responseOkOrBust, responseOkWithBody)
 import Affjax (URL)
-import Data.Argonaut (class EncodeJson, decodeJson, encodeJson, (.:), (.:?), (:=), (~>))
+import Data.Argonaut (class EncodeJson, decodeJson, encodeJson, (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromJust)

@@ -10,17 +10,17 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
-import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
-import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId, RoomMembership(..), SessionInfo, UserProfile, unPrevBatchToken, unUserId)
+import Purechat.ServerFeed (RoomMeta, JoinedRoom)
+import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (checkbox, getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, current, dynamic_, fixFRP, holdDyn, pull, readBehavior, readDynamic, subscribeDyn_, subscribeEvent_, tagDyn)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, fixFRP, holdDyn, pull, readBehavior, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Unsafe.Coerce (unsafeCoerce)
@@ -48,7 +48,7 @@ composeMessageWidget =
   in
     elClass "div" "message-form" $ fixFRP loop
 
-viewEvent :: forall m. MonadWidget m => SessionInfo -> Dynamic RoomData -> MatrixEvent MatrixRoomEvent -> m Unit
+viewEvent :: forall m. MonadWidget m => SessionInfo -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
 viewEvent si drd evt =
   elClass "div" "message-wrapper" $ dynamic_ $ drd
     <#> \rd -> do
@@ -89,8 +89,8 @@ leaveButton si rId = do
       }
   pure unit
 
-autoScrollBar :: forall m. MonadWidget m => Node -> Dynamic RoomData -> m Unit
-autoScrollBar msgListNode rd = do
+autoScrollBar :: forall m. MonadWidget m => Node -> Event Unit -> m Unit
+autoScrollBar msgListNode trigger = do
   -- A horizontal strip of space reserved for the checkbox that causes the view to auto-scroll down.
   elClass "div" "auto-scoll-bar" do
     autoScroll <- checkbox true Object.empty
@@ -104,7 +104,7 @@ autoScrollBar msgListNode rd = do
     liftEffect do
       autoScrl <- pull $ readBehavior (current autoScroll)
       when autoScrl scrollToBottomCond
-    subscribeDyn_ (const scrollToBottomCond) rd
+    subscribeEvent_ (const scrollToBottomCond) trigger
 
 scrollTopDyn :: forall m. MonadFRP m => Node -> m (Dynamic Number)
 scrollTopDyn n = do
@@ -113,26 +113,25 @@ scrollTopDyn n = do
   holdDyn initialScroll scrolls
 
 -- A widget showing the contents of a room that the user is currently participating in.
-joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> (Dynamic Int -> WeakDynamic RoomData) -> m Unit
-joinedRoomView si rId rd = do
-  -- rd <- mkRd $ pure Nothing
+joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
+joinedRoomView si rId room = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
   elClass "div" "room-meta" do
-    elClass "h2" "room-name" $ dynamic_ $ rd <#> \rs -> (text rs.display_name)
+    elClass "h2" "room-name" $ dynamic_ $ room.meta <#> \rs -> (text rs.display_name)
     leaveButton si rId
   -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
+
+  msgs <- room.messages $ pure 10
+
   -- List of room events
   (Tuple msgListNode _) <-
-    elClass' "div" "room-messages"
-      $ dynamicList_ (_.timeline <$> rd)
-      $ \devt -> dynamic_ $ devt <#> (viewEvent si rd)
+    elClass' "div" "room-messages" $ dynamicList_ msgs $ \devt -> dynamic_ $ devt <#> (viewEvent si room.meta)
   -- The checkbox with label to auto-scroll to the bottom.
   -- SIDE EFFECTS: this widget affects the message list!
-  autoScrollBar msgListNode rd
+  autoScrollBar msgListNode (const unit <$> changed msgs)
   scroll <- scrollTopDyn msgListNode
-  
   -- extraEvents <- asyncRequestMaybe do
   --   s <- scroll
   --   if s > 0 
@@ -141,14 +140,10 @@ joinedRoomView si rId rd = do
   --       r <- rd
   --       r.prev_batch
   --       page <- API.Rooms.getEventsUpto si rid r.prev_batch
-
-  
   -- subscribeDyn_ (\v -> when (v == 0.0) do
   --   rd_current <- readDynamic $ rd
   --   Console.log $ "Gib messages!" <> (unPrevBatchToken rd_current.prev_batch)
   --     ) scroll
-
-
   -- Message composition widget, which will produce message events whenever "send" is clicked.
   msg <- composeMessageWidget
   currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))
@@ -160,11 +155,11 @@ joinedRoomView si rId rd = do
 -- join status. If the user is not in the room, they will be shown join/invite options instead.
 -- The room directory separate from the room view. Think of the directory as a "remote control"
 -- for this widget/ The room view widget can function independently from the directory.
-roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic (Maybe RoomData) -> m Unit
+roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
 roomView si rId mrd =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ])
     $ do
-        dynamicMaybe_ mrd (joinedRoomView si rId)
+        dynamicMaybe_ mrd (\djr -> dynamic_ $ joinedRoomView si rId <$> djr)
         dynamic_ $ mrd
           <#> case _ of
               Just _ -> pure unit
