@@ -1,6 +1,8 @@
 module CustomCombinators where
 
 import Prelude
+
+import Control.Lazy (fix)
 import Control.Monad.Cleanup (onCleanup)
 import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, jsonParser, stringify)
 import Data.Array as Array
@@ -150,7 +152,7 @@ fanIn ::
     { subscribe :: Dynamic a -> m (Dynamic a)
     , output :: Dynamic a
     }
-fanIn combiner = do
+fanIn combiner = fixFrp
   { dynamic, set, read } <- newDynamic (Map.empty :: Map Int (Dynamic a))
 
   let
@@ -169,3 +171,5 @@ fanIn combiner = do
     output = combiner =<< (Map.values <$> dynamic)
 
   pure { subscribe, output }
+
+fix

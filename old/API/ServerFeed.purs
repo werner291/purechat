@@ -182,8 +182,11 @@ handleJoin si (Tuple rId ru) updates = do
     new_events :: Event (Array (MatrixEvent MatrixRoomEvent))
     new_events = rus <#> _.new_events
 
+  sizeRequest :: Dynamic Int
+
   messages :: Dynamic (Array (MatrixEvent MatrixRoomEvent)) <-
     foldDyn (\new_events a -> Array.takeEnd 100 $ a <> new_events) [] new_events
+
   meta :: Dynamic RoomMeta <-
     foldDyn (\ru' m -> Array.foldl (flip foldEventIntoRoomState) m ru'.new_events) init_meta rus
   pure
