@@ -18,7 +18,7 @@ You can edit this file as you like.
     , "psci-support"
     , "uuid"
     , "web-storage"
-    , "specular"
+    -- , "specular"
     , "strings"
     , "variant"
     ]
