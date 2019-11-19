@@ -6,7 +6,6 @@ import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, enco
 import Data.Either (Either(..))
 import Data.Map (Map)
 import Data.Maybe (Maybe, fromMaybe)
-import Specular.FRP (Dynamic)
 
 type MatrixEvent a
   = { event_id :: String

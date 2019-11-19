@@ -8,7 +8,7 @@ You can edit this file as you like.
     [ "affjax"
     , "argonaut"
     , "argonaut-core"
-    , "behaviors"
+    -- , "behaviors"
     , "console"
     , "debug"
     , "effect"
