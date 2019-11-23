@@ -3,7 +3,9 @@ module Main where
 import Prelude
 
 import Effect (Effect)
-import MyFRP (buildWidgetInBody, text)
+import MyFRP (runWidgetInBody)
+
+import Purechat.LoginComponent (loginForm)
 
 -- import CustomCombinators (StoreStatus, localStorageJsonDynamic, storeStatusToMaybe)
 -- import Data.Maybe (Maybe(..))
@@ -41,5 +43,4 @@ import MyFRP (buildWidgetInBody, text)
 --     fixFRP_ loop
   
 main :: Effect Unit
-main = buildWidgetInBody do
-  text "Hello world!"
+main = runWidgetInBody loginForm

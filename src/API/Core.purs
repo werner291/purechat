@@ -8,22 +8,15 @@ import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
-import Data.Argonaut (class DecodeJson, Json, decodeJson, getField, (.:), (:=), (~>))
+import Data.Argonaut (class DecodeJson, Json, decodeJson, (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
-import Data.FoldableWithIndex (foldlWithIndex)
 import Data.HTTP.Method (Method(..))
-import Data.Map (Map)
-import Data.Map (empty, insert) as Map
 import Data.Maybe (Maybe(..))
-import Data.Maybe as Maybe
-import Data.Traversable (traverse)
 import Data.UUID as UUID
 import Effect.Aff (Aff, Error, error, throwError)
-import Effect.Aff as EE
 import Effect.Class (liftEffect)
-import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent, RoomId(..), SessionInfo, UserId(..), decodeRoomEvent, unRoomId)
+import Purechat.Types (LoginToken(..), RoomId, SessionInfo, UserId(..), unRoomId)
 
 -- | Turns a nested `Either Error (Either String a)` into `Either String a`
 -- | by extracting the error message.
