@@ -1,7 +1,6 @@
 module Purechat.Types where
 
 import Prelude
-
 import Affjax (URL)
 import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional, (.:))
 import Data.Either (Either(..))
@@ -17,7 +16,10 @@ type MatrixEvent a
 class MatrixEventType a where
   eventTypeString :: a -> String
 
-data RoomMembership = Join | Leave | Invite
+data RoomMembership
+  = Join
+  | Leave
+  | Invite
 
 instance decodeRoomMembership :: DecodeJson RoomMembership where
   decodeJson :: Json -> Either String RoomMembership
@@ -61,7 +63,7 @@ decodeRoomEvent json = do
         displayname <- getFieldOptional content "displayname"
         avatar_url <- getFieldOptional content "avatar_url"
         membership <- getField content "membership"
-        pure { event_id, sender, content: (Right (Membership { profile:{displayname, avatar_url}, membership, user_id: UserId state_key })) }
+        pure { event_id, sender, content: (Right (Membership { profile: { displayname, avatar_url }, membership, user_id: UserId state_key })) }
       "m.room.name" -> do
         content <- getField o "content"
         name <- getField content "name"
@@ -79,15 +81,23 @@ decodeRoomEvent json = do
     Left decodeErr -> pure { event_id, sender, content: (Left decodeErr) }
     Right evt -> Right evt
 
--- | Record describing all available and known information about a room.
-type RoomData
-  = { timeline :: Array (MatrixEvent MatrixRoomEvent)
-    , name :: Maybe String
-    , canonical_alias :: Maybe String
-    , topic :: Maybe String
-    , members :: Map UserId UserProfile
-    , display_name :: String -- Cached version of `roomNameFromData`
-    }
+newtype PrevBatchToken
+  = PrevBatchToken String
+
+unPrevBatchToken :: PrevBatchToken -> String
+unPrevBatchToken (PrevBatchToken t) = t
+
+-- | Record describing all available and known information about a room
+-- type Room
+--   = { timeline :: Array (MatrixEvent MatrixRoomEvent) -- May eventually be replaced with a more high-level view of the room
+--     , name :: Maybe String -- Explicitly-set name of the room
+--     , canonical_alias :: Maybe String -- Room's canonical alias
+--     , topic :: Maybe String -- A topic, if the room has one
+--     , members :: Map UserId UserProfile -- A Map of room participants and their profile
+--     , display_name :: String -- Cached version of `roomNameFromData`
+--     , from :: PrevBatchToken -- The timestamp upto which events are incorporated into the RoomData
+--     , events_requested :: Boolean -- Whether the backend is currently fetching more events
+--     }
 
 type SessionInfo
   = { token :: LoginToken, homeserver :: String, user_id :: UserId }
@@ -155,4 +165,5 @@ instance encodeJsonUserId :: EncodeJson UserId where
 -------------
 type UserProfile
   = { displayname :: Maybe String
-    , avatar_url :: Maybe URL }
+    , avatar_url :: Maybe URL
+    }

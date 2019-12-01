@@ -1,16 +1,11 @@
 module LoginComponent where
 
 import Prelude
-
-import API.Core (tryLogin)
-import Control.Apply (lift3)
 import Data.Either (Either(..), hush)
 import Data.Maybe (Maybe(..))
-import Effect.Aff (Aff)
-import Effect.Aff as Aff
-import Effect.Exception (message)
-import Hareactive.Combinators (filterJust, runStreamAff, snapshot, stepper)
-import Hareactive.Types (Behavior, Stream)
+import Hareactive.Combinators (filterJust, runStreamAff, snapshot, snapshotWith, stepper)
+import Hareactive.Types (Stream)
+import API (tryLogin, stringifyErrors)
 import Purechat.Types (SessionInfo)
 import Turbine (Component, component, output, use, (</>))
 import Turbine.HTML as E
@@ -24,12 +19,13 @@ loginPage :: Component { session :: Stream SessionInfo } {}
 loginPage =
   component \on -> do
     let
-      loginAttemptAsync :: Behavior (Aff SessionInfo)
       loginAttemptAsync = lift3 tryLogin on.username on.password on.homeserver
-    loginAttemptResult :: Stream (Either Aff.Error SessionInfo) <- runStreamAff $ snapshot loginAttemptAsync on.submit
-    errorMsg <- stepper "" (map message <$> filterJust $ fromLeftMaybe <$> loginAttemptResult)
+    loginAttemptResult <- runStreamAff $ snapshot loginAttemptAsync on.submit
+    errorMsg <- stepper "" (filterJust $ (fromLeftMaybe <<< stringifyErrors) <$> loginAttemptResult)
     let
-      session = filterJust $ hush <$> loginAttemptResult
+      tokens = filterJust $ (hush <<< stringifyErrors) <$> loginAttemptResult
+
+      session = snapshotWith (\token homeserver -> { token, homeserver }) on.homeserver tokens
     ( E.div {}
         ( E.div {}
             ( E.label {} (E.text "Username")

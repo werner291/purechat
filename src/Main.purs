@@ -1,44 +1,52 @@
 module Main where
 
 import Prelude
-
-import CustomCombinators (StoreStatus, localStorageJsonDynamic, storeStatusToMaybe)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
-import Purechat.LoginComponent (loginForm)
-import Purechat.Purechat (primaryView)
-import Purechat.Types (SessionInfo)
-import Specular.Dom.Widget (class MonadWidget, runMainWidgetInBody)
-import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic, never, switch)
-import Specular.FRP.Fix (fixFRP_)
+import Hareactive.Combinators (shiftCurrent)
+import Hareactive.Types (Behavior, Stream)
+import LoginComponent (loginPage)
+import Turbine (Component, component, dynamic, output, runComponent, use)
 import Web.HTML (window)
 import Web.HTML.Window (localStorage)
-import Web.Storage.Storage (Storage)
+import Purechat.Types (LoginToken(..), SessionInfo, unToken)
+import StorageFRP (storageStepper)
+-- import MainPage (mainPage)
 
-loginThenMain :: forall m. MonadWidget m => MonadFRP m => m Unit
-loginThenMain = 
-  let 
-    -- showPage :: forall m. MonadWidget m => Maybe SessionInfo -> m (Event SessionInfo)
-    showPage s =
-      case s of
-        Nothing -> 
-          loginForm
-        Just sess -> do
-          primaryView sess
-          pure never
+-- | The entry-point application component, whose primary function it is to switch around
+-- | between the login / registration / main activities.
+app :: Component {} {}
+app =
+  component \o -> do
+    storage <-
+      liftEffect
+        $ do
+            w <- window
+            localStorage w
+    token <- storageStepper "token" storage ((_ >>= \ss -> Just (unToken ss.token)) <$> o.updateSession)
+    homeserver <- storageStepper "homeserver" storage ((_ >>= \ss -> (Just ss.homeserver)) <$> o.updateSession)
+    let
+      session = do
+        t <- token
+        h <- homeserver
+        pure
+          $ do
+              tt <- t
+              hh <- h
+              pure
+                { token: (LoginToken tt)
+                , homeserver: hh
+                }
+    let
+      pageToShow :: Behavior (Component {} { updateSession :: Stream (Maybe SessionInfo) })
+      pageToShow = do
+        se <- session
+        pure
+          $ case se of
+              Nothing -> loginPage `use` (\oo -> { updateSession: Just <$> oo.session })
+              Just ses -> { updateSession: mempty } --mainPage ses `use` (\oo -> { updateSession: const Nothing <$> oo.logout })
+    (dynamic pageToShow `use` (\oo -> { updateSession: shiftCurrent (_.updateSession <$> oo) })) `output` {}
 
-    -- loop :: forall m. MonadWidget m => MonadFRP m => Event SessionInfo -> m (Event SessionInfo)
-    loop sessionUpdate = do
-      storage :: Storage <- liftEffect $ window >>= localStorage
-      sess :: Dynamic (StoreStatus SessionInfo) <- localStorageJsonDynamic "session" storage (Just <$> sessionUpdate)
-      events :: Dynamic (Event SessionInfo) <- dynamic (storeStatusToMaybe >>> showPage <$> sess)
-      pure $ switch events
-  in
-    fixFRP_ loop
-      
-  
-  
-  
 main :: Effect Unit
-main = runMainWidgetInBody loginThenMain
+main = runComponent "#mount" app

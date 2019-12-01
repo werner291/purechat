@@ -25,8 +25,6 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), RoomData, RoomId(..), SessionInfo, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
-import Specular.FRP.Async (startAff)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomId -> RoomData -> String
