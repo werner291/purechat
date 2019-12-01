@@ -34,8 +34,8 @@ storeStatusToMaybe :: forall a. StoreStatus a -> Maybe a
 storeStatusToMaybe (Stored a) = Just a
 storeStatusToMaybe _ = Nothing
 
-localStorageJsonDynamic :: forall a. EncodeJson a => DecodeJson a => String -> Storage -> Stream (Maybe a) -> Now (Behavior (StoreStatus a))
-localStorageJsonDynamic key stor updt = do
+storageStepperJson :: forall a. EncodeJson a => DecodeJson a => String -> Storage -> Stream (Maybe a) -> Now (Behavior (StoreStatus a))
+storageStepperJson key stor updt = do
   let
     encodedUpdates :: Stream (Maybe String)
     encodedUpdates = map (encodeJson >>> stringify) <$> updt
