@@ -143,22 +143,16 @@ let additions = {
         repo = "https://github.com/slamdata/purescript-affjax.git",
         version = "v9.0.0"
     },
-    specular = { dependencies =
-          [ "prelude", 
-            "aff", 
-            "random",
-            "record",
-            "unsafe-reference",
-            "avar",
-            "foreign-object",
-            "debug",
-            "generics-rep"
-          ]
-      , repo =
-          "https://github.com/restaumatic/purescript-specular.git"
-      , version =
-          "v0.6.2"
-      }
+    hareactive = {
+        dependencies = [] : List Text,
+        repo = "https://github.com/funkia/purescript-hareactive.git",
+        version = "v0.1.0"
+    },
+    turbine = {
+        dependencies = ["hareactive","web-dom","web-html"],
+        repo = "https://github.com/funkia/purescript-turbine.git",
+        version = "v0.1.0"
+    }
 }
 
 in  upstream // overrides // additions
