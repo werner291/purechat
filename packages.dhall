@@ -155,9 +155,9 @@ let additions = {
             "generics-rep"
           ]
       , repo =
-          "https://github.com/werner291/purescript-specular.git"
+          "https://github.com/restaumatic/purescript-specular.git"
       , version =
-          "bbbfceafd13429adb982d9ee7cd3542999eb1a7a"
+          "568343a6d1cea1eb47b4dbf7f9d7e85aab63a0e4"
       }
 }
 

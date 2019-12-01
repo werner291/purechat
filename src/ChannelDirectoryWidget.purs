@@ -2,7 +2,7 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
 
-import CustomCombinators (elClass, elemOnClick, pulseSpinner)
+import CustomCombinators (RemoteResourceView, elClass, elemOnClick, pulseSpinner, remoteLoadingView)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set as Set
@@ -14,6 +14,7 @@ import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
 import Specular.FRP (Dynamic, Event, WeakDynamic, dynamic, dynamic_, leftmost, never, switch, switchWeakDyn, unWeakDynamic, weakDynamic, weakDynamic_)
+import Specular.FRP.Async (RequestState)
 import Specular.FRP.List (weakDynamicList)
 
 searchBar :: forall m. MonadWidget m => m (Event String)
@@ -28,8 +29,8 @@ searchBar = do
 
 -- A widget showing a short, compact list of all channels the user might currently be interested in.
 -- Returns an Event stream of room IDs
-channelDirectory :: forall m. MonadWidget m => WeakDynamic (KnownServerState m) -> m (Event RoomId)
-channelDirectory st =
+channelDirectory :: forall m. MonadWidget m => Dynamic (RemoteResourceView (KnownServerState m)) -> m (Event RoomId)
+channelDirectory rkss = remoteLoadingView rkss $ \st ->
   elClass "div" "channel-directory" do
     directEnterName :: Event String <- searchBar
     let
@@ -57,7 +58,10 @@ channelDirectory st =
       inviterow :: WeakDynamic RoomId -> m (Event RoomId)
       inviterow d = switchWeakDyn <$> weakDynamic (d <#> clickableLiInvite)
     el "h2" $ text "Invitations"
-    weakDynamic_ $ st <#> \s -> when (Set.isEmpty s.invited_to) $ text "You have no invitations."
+    weakDynamic_ $ st.invited_to <#> \s -> 
+      if (Set.isEmpty s) 
+        then text "You have no invitations."
+        else 
     pickedFromInvite <-
       (switchWeakDyn <<< map leftmost)
         <$> el "ul" (weakDynamicList (Set.toUnfoldable <<< _.invited_to <$> st) $ inviterow)

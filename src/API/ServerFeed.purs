@@ -1,10 +1,12 @@
 module Purechat.ServerFeed (serverState, KnownServerState, JoinedRoom, RoomMeta) where
 
 import Prelude
+
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
+import CustomCombinators (RemoteResourceView(..), toLoadedUpdates)
 import Data.Argonaut (Json, decodeJson, getField, (.:))
 import Data.Array as Array
 import Data.Either (Either(..))
@@ -18,14 +20,14 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
+import Effect (Effect)
 import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, InnerFRP, WeakDynamic, changed, filterMapEvent, foldDyn, holdWeakDyn, newEvent)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, holdWeakDyn, newDynamic, newEvent, subscribeEvent_)
 import Specular.FRP.Async (startAff)
-import Specular.FRP.Base (foldDynM)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomMeta -> String
@@ -62,8 +64,8 @@ type JoinedRoom m
 
 -- dynState :: forall m. MonadFRP m => m (Dynamic Map RoomId (JoinedRoom m))
 type KnownServerState m
-  = { joined_rooms :: Map RoomId (JoinedRoom m)
-    , invited_to :: Set RoomId
+  = { joined_rooms :: Dynamic (Map RoomId (JoinedRoom m))
+    , invited_to :: Dynamic (Set RoomId)
     }
 
 type RoomLeave
@@ -164,66 +166,62 @@ delayTillFirstUpdate :: forall a m. MonadFRP m => Dynamic a -> m (WeakDynamic a)
 delayTillFirstUpdate d = do
   holdWeakDyn $ changed d
 
-handleJoin :: forall m. MonadFRP m => SessionInfo -> Tuple RoomId RoomUpdate -> Event SyncPollResult -> InnerFRP (JoinedRoom m)
-handleJoin si (Tuple rId ru) updates = do
-  let
-    init_meta =
-      { room_id: rId
-      , canonical_alias: Nothing
-      , topic: Nothing
-      , members: Map.empty
-      , display_name: unRoomId rId
-      , name: Nothing
-      }
-
-    rus :: Event RoomUpdate
-    rus = filterMapEvent (\spr -> Map.lookup rId spr.rooms.join) updates
-
-    new_events :: Event (Array (MatrixEvent MatrixRoomEvent))
-    new_events = rus <#> _.new_events
-
-  messages :: Dynamic (Array (MatrixEvent MatrixRoomEvent)) <-
-    foldDyn (\new_events a -> Array.takeEnd 100 $ a <> new_events) [] new_events
-  meta :: Dynamic RoomMeta <-
-    foldDyn (\ru' m -> Array.foldl (flip foldEventIntoRoomState) m ru'.new_events) init_meta rus
-  pure
-    { messages:
-      \reqMsg -> do
-        pure messages
-    , meta
+type InternalRoomState m
+  = { addUpdate :: RoomUpdate -> Effect Unit
+    , output :: JoinedRoom m
+    , cleanup :: Effect Unit
     }
 
--- -- A Dynamic representing the currently known user-relevant state of the Matrix server
--- -- This data need not be entirely complete, it is simply what is known at the current
--- -- time, and of that, only the parts that we currently need.
-serverState :: forall m. MonadFRP m => SessionInfo -> m (WeakDynamic (KnownServerState m))
-serverState si = do
-  updates <- (syncFeed si) :: m (Event SyncPollResult)
-  let
-    foldStepTuple :: Map RoomId (JoinedRoom m) -> Tuple RoomId RoomUpdate -> InnerFRP (Map RoomId (JoinedRoom m))
-    foldStepTuple st (Tuple rId ru) = case (Map.lookup rId st) of
-      Just _ -> pure st
-      Nothing -> do
-        jr <- (handleJoin si (Tuple rId ru) updates) :: InnerFRP (JoinedRoom m)
-        pure $ Map.insert rId jr st
+initMeta :: RoomId -> RoomMeta
+initMeta rId =
+  { room_id: rId
+  , canonical_alias: Nothing
+  , topic: Nothing
+  , members: Map.empty
+  , display_name: unRoomId rId
+  , name: Nothing
+  }
 
-    foldStep :: SyncPollResult -> Map RoomId (JoinedRoom m) -> InnerFRP (Map RoomId (JoinedRoom m))
-    foldStep spr st = do
-      let
-        tuples = Map.toUnfoldable $ Map.difference spr.rooms.join st
-      Array.foldM foldStepTuple st tuples
-  joined_rooms <- (foldDynM foldStep Map.empty updates) :: m _
-  invited_to <-
-    ( foldDyn
-        ( \updt st ->
-            Set.difference (Set.union st (Map.keys updt.rooms.invite)) (Map.keys updt.rooms.join)
-        )
-        Set.empty
-        updates
-    ) ::
-      m _
-  delayTillFirstUpdate
-    $ do
-        j <- joined_rooms
-        i <- invited_to
-        pure { joined_rooms: j, invited_to: i }
+foldStepTuple :: forall m. MonadFRP m =>
+  Map RoomId (InternalRoomState m) ->
+  Tuple RoomId RoomUpdate ->
+  Effect (Map RoomId (InternalRoomState m))
+foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
+  Just (rst :: InternalRoomState m) -> do
+    rst.addUpdate ru
+    pure st'
+  Nothing -> do
+    nd_meta <- newDynamic $ Array.foldl (flip foldEventIntoRoomState) (initMeta rId) ru.new_events
+    nd_messages <- newDynamic $ ru.new_events
+    pure
+      $ Map.insert rId
+          { cleanup: ((pure unit) :: Effect Unit)
+          , addUpdate: \upt -> do
+              m <- nd_meta.read
+              nd_meta.set $ Array.foldl (flip foldEventIntoRoomState) m upt.new_events
+              msg <- nd_messages.read
+              nd_messages.set $ msg <> upt.new_events
+          , output:
+            { meta: nd_meta.dynamic
+            , messages: const $ pure nd_messages.dynamic
+            }
+          }
+          st'
+
+-- A Dynamic representing the currently known user-relevant state of the Matrix server
+-- This data need not be entirely complete, it is simply what is known at the current
+-- time, and of that, only the parts that we currently need.
+serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
+serverState si = do
+  rooms_st <- newDynamic (Map.empty :: Map RoomId (InternalRoomState m))
+  updates <- (syncFeed si) :: m (Event SyncPollResult)
+  flip subscribeEvent_ updates \spr -> do
+    st <- rooms_st.read
+    rooms_st.set =<< Array.foldM foldStepTuple st (Map.toUnfoldable spr.rooms.join)
+
+  joined_rooms <- toLoadedUpdates $ changed $ rooms_st.dynamic
+
+  pure $ joined_rooms <#> case _ of
+    RRLoaded jr -> RRLoaded { joined_rooms : (map _.output <$> rooms_st.dynamic), invited_to: pure $ Set.empty }
+    RRLoading -> RRLoading
+
