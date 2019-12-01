@@ -10,53 +10,53 @@ import Data.Set as Set
 import Data.Tuple (Tuple(..))
 import Effect.Aff (message)
 import Foreign.Object as Object
+import Hareactive.Combinators (accum, shiftCurrent)
 import Purechat.Types (RoomId, SessionInfo, UserId(..), unUserId)
-import Specular.Dom.Builder.Class (el, text)
-import Specular.Dom.Widget (class MonadWidget)
-import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.Dom.Widgets.Input (textInputOnInput)
-import Specular.FRP (Dynamic, Event, dynamic, fixEvent, foldDyn, leftmost, switch, tagDyn)
-import Specular.FRP.List (dynamicList)
+import Turbine (component, list, modelView, use)
+import Turbine.HTML (button, li, text)
 
-data InviteeListAction
-  = AddInvitee UserId
-  | RemoveInvitee UserId
-
-inviteesList :: forall m. MonadWidget m => m (Dynamic (Set UserId))
+inviteesList :: forall o. Component (Behavior (Set UserId)) o
 inviteesList =
-  fixEvent
-    $ \inviteeUpdate -> do
-        invitees <-
-          foldDyn
-            ( case _ of
-                AddInvitee uid -> Set.insert uid
-                RemoveInvitee uid -> Set.delete uid
-            )
-            Set.empty
-            inviteeUpdate
-        removals <-
-          elClass "ul" "invitees" do
-            d <-
-              dynamicList (Set.toUnfoldable <$> invitees)
-                $ \duid ->
-                    map switch $ dynamic $ duid
-                      <#> ( \uid ->
-                            elClass "li" "invitee" do
-                              text $ unUserId uid
-                              r <- elemOnClick "i" (Object.singleton "class" "invitee-remove fas fa-times") (pure unit)
-                              pure $ const (RemoveInvitee uid) <$> r
-                        )
-            pure $ switch (leftmost <$> d)
-        newInviteeId <- textInputOnInput "" (Object.singleton "class" "invitee-nameinput")
-        newInviteeBtn <- buttonOnClick (pure (Object.singleton "class" "invitee-add")) $ text "Add"
-        pure $ Tuple (AddInvitee <<< UserId <$> tagDyn newInviteeId newInviteeBtn) invitees
+  component \{additions, removals} -> do
+    invitees <-
+      accum
+        ( case _ of
+            AddInvitee uid -> Set.insert uid
+            RemoveInvitee uid -> Set.delete uid
+        )
+        Set.empty
+        inviteeUpdate
+    ul { class: pure "invitees" }
+      $ list
+          ( \uid ->
+              li text (unUserId uid)
+                </> button {} (text "X") `use` (\bo -> { removal: bo.click <#> const (RemoveInvitee uid) })
+          )
+          unUserId
+      `use` (\removals -> shiftCurrent (map  removals))
+          
 
+-- removals <-
+--   elClass "ul" "invitees" do
+--     d <-
+--       list (Set.toUnfoldable <$> invitees)
+--         $ \duid ->
+--             map switch $ dynamic $ duid
+--               <#> ( \uid ->
+--                     elClass "li" "invitee" do
+--                       text $ unUserId uid
+--                       r <- elemOnClick "i" (Object.singleton "class" "invitee-remove fas fa-times") (pure unit)
+--                       pure $ const (RemoveInvitee uid) <$> r
+--                 )
+--     pure $ switch (leftmost <$> d)
+-- newInviteeId <- textInputOnInput "" (Object.singleton "class" "invitee-nameinput")
+-- newInviteeBtn <- buttonOnClick (pure (Object.singleton "class" "invitee-add")) $ text "Add"
+-- pure $ Tuple (AddInvitee <<< UserId <$> tagDyn newInviteeId newInviteeBtn) invitees
 createRoomWidget :: forall m. MonadWidget m => SessionInfo -> m (Event RoomId)
 createRoomWidget si =
   elClass "div" "create-room"
     $ do
         el "h2" $ text "Create a new room"
-
         alias <-
           elClass "div" "input-group" do
             el "h3" $ text "Canonical alias"
