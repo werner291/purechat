@@ -1,8 +1,9 @@
 module CustomCombinators where
 
 import Prelude
+
 import Data.Either (Either(..), hush)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, try)
 import Effect.Exception (Error)
@@ -30,8 +31,8 @@ data RemoteResourceView a
   = RRLoading
   | RRLoaded a
 
-remoteLoadingView :: forall a b m. MonadWidget m => Dynamic (RemoteResourceView a) -> (a -> m b) -> m Unit -> m (Dynamic (Maybe b))
-remoteLoadingView d loadedView loadingView =
+remoteLoadingView :: forall a b m. MonadWidget m => Dynamic (RemoteResourceView a) -> m Unit -> (a -> m b) -> m (Dynamic (Maybe b))
+remoteLoadingView d loadingView loadedView =
   dynamic $ d
     <#> case _ of
         RRLoaded a -> loadedView a <#> Just
@@ -59,6 +60,9 @@ dynamicMaybe_ :: forall a m. MonadWidget m => Dynamic (Maybe a) -> (a -> m Unit)
 dynamicMaybe_ dm mkJ = do
   _ <- dynamicMaybe dm mkJ
   pure unit
+
+bridgeEventOverMaybe :: forall a. Dynamic (Maybe (Event a)) -> Event a
+bridgeEventOverMaybe d = switch (d <#> fromMaybe never)
 
 -- | A widget combinator that represents the common scenario where a is provided with one view,
 -- | actions in this view result in some async action (such as a network request). This action

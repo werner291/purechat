@@ -155,11 +155,11 @@ joinedRoomView si rId room = do
 -- join status. If the user is not in the room, they will be shown join/invite options instead.
 -- The room directory separate from the room view. Think of the directory as a "remote control"
 -- for this widget/ The room view widget can function independently from the directory.
-roomView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
+roomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
 roomView si rId mrd =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ])
     $ do
-        dynamicMaybe_ mrd (\djr -> dynamic_ $ joinedRoomView si rId <$> djr)
+        dynamicMaybe_ mrd (joinedRoomView si rId)
         dynamic_ $ mrd
           <#> case _ of
               Just _ -> pure unit

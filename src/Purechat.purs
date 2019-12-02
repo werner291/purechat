@@ -1,9 +1,8 @@
 module Purechat.Purechat (primaryView) where
 
 import Prelude
-
 import API.Profile (getProfile)
-import CustomCombinators (elClass, elemOnClick)
+import CustomCombinators (RemoteResourceView, bridgeEventOverMaybe, elClass, elemOnClick, pulseSpinner, remoteLoadingView, toLoadedUpdates)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Foreign.Object as Object
@@ -17,30 +16,30 @@ import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP_, holdDyn, holdWeakDyn, leftmost, never, switch, switchWeakDyn, unWeakDynamic, weakDynamic)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, dynamic, filterMapEvent, fixFRP_, holdDyn, leftmost, never, switch)
 import Specular.FRP.Async (RequestState, asyncRequest, fromLoaded)
 
-profileBar :: forall m. MonadWidget m => SessionInfo -> WeakDynamic UserProfile -> m { openProfile :: Event Unit }
+profileBar :: forall m. MonadWidget m => SessionInfo -> UserProfile -> m { openProfile :: Event Unit }
 profileBar si profile =
   elClass "div" "profile-bar" do
-    openProfile :: Event Unit <-
-      switch
-        <$> ( dynamic $ (unWeakDynamic profile)
-              <#> case _ of
-                  (Just prof) -> do
-                    showAvatarOrDefault si prof.avatar_url
-                    elClass "p" "username" $ text $ fromMaybe (unUserId si.user_id) prof.displayname
-                    elemOnClick "i" (Object.singleton "class" "fas fa-cog") $ pure unit
-                  Nothing -> do
-                    text $ "Fetching profile..."
-                    pure never
-          )
-    pure { openProfile: openProfile }
+    showAvatarOrDefault si profile.avatar_url
+    elClass "p" "username" $ text $ fromMaybe (unUserId si.user_id) profile.displayname
+    openProfile :: Event Unit <- elemOnClick "i" (Object.singleton "class" "fas fa-cog") $ pure unit
+    pure { openProfile }
 
-sidebar :: forall m. MonadWidget m => SessionInfo -> WeakDynamic UserProfile -> WeakDynamic (KnownServerState m) -> m { channelPicked :: Event (RoomId), createRoom :: Event Unit, openProfile :: Event Unit }
+bridgeProfile :: Dynamic (Maybe { openProfile :: Event Unit }) -> { openProfile :: Event Unit }
+bridgeProfile d = { openProfile: bridgeEventOverMaybe $ map (map _.openProfile) d }
+
+sidebar ::
+  forall m.
+  MonadWidget m =>
+  SessionInfo ->
+  Dynamic (RemoteResourceView UserProfile) ->
+  Dynamic (RemoteResourceView (KnownServerState m)) ->
+  m { channelPicked :: Event (RoomId), createRoom :: Event Unit, openProfile :: Event Unit }
 sidebar si profile st =
   elClass "div" "sidebar" do
-    { openProfile } <- profileBar si profile
+    { openProfile } <- bridgeProfile <$> (remoteLoadingView profile pulseSpinner (profileBar si))
     createRoom <-
       buttonOnClick (pure Object.empty) do
         elClass "i" "fas fa-plus" $ pure unit
@@ -64,15 +63,15 @@ modelStore ::
   SessionInfo ->
   Event UserProfile ->
   m
-    { server_state :: WeakDynamic (KnownServerState m)
-    , current_profile :: WeakDynamic UserProfile
+    { server_state :: Dynamic (RemoteResourceView (KnownServerState m))
+    , current_profile :: Dynamic (RemoteResourceView UserProfile)
     }
 modelStore si profileUpdates = do
   -- Keep a list of channels the user has currently joined
   server_state <- serverState si
   -- Keep the most recent known version of the user's profile information
   profile_from_server_state :: Dynamic (RequestState UserProfile) <- asyncRequest $ pure (getProfile si si.user_id)
-  current_profile <- holdWeakDyn $ leftmost [ profileUpdates, filterMapEvent fromLoaded $ changed profile_from_server_state ]
+  current_profile <- toLoadedUpdates $ leftmost [ profileUpdates, filterMapEvent fromLoaded $ changed profile_from_server_state ]
   pure { server_state, current_profile }
 
 interruptedEvent :: forall a. Dynamic (Maybe (Event a)) -> Event a
@@ -81,6 +80,8 @@ interruptedEvent d =
     >>= case _ of
         Just a -> pure a
         Nothing -> pure never
+
+
 
 -- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> m Unit
@@ -96,16 +97,13 @@ primaryView si =
           elClass "div" "main-view" $ dynamic $ currentRoomView
             <#> case _ of
                 EditProfile -> do
-                  profs :: WeakDynamic (Event UserProfile) <- weakDynamic $ current_profile <#> \prof -> editProfileWidget si prof
-                  pure $ UserProfileOutput (switchWeakDyn profs)
+                  profs <- bridgeEventOverMaybe <$> remoteLoadingView current_profile pulseSpinner (editProfileWidget si)
+                  pure $ UserProfileOutput profs
                 CreateRoom -> do
                   _ <- createRoomWidget si
                   pure NoOutput
                 ShowRoom rid -> do
-                  roomView si rid $ unWeakDynamic (_.joined_rooms <$> server_state)
-                    >>= case _ of
-                        Just c -> pure $ Map.lookup rid c
-                        Nothing -> pure Nothing
+                  _ <- remoteLoadingView server_state pulseSpinner $ \st -> roomView si rid $ (Map.lookup rid <$> st.joined_rooms)
                   pure NoOutput
                 PickRoom -> do
                   text "Welcome! Please select a room to get started."
