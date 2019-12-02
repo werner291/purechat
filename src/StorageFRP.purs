@@ -1,4 +1,4 @@
-module StorageFRP (localStorageDynamic, localStorageJsonDynamic, StoreStatus(..)) where
+module StorageFRP (localStorageDynamic, localStorageJsonDynamic, StoreStatus(..), storeStatusToMaybe) where
 
 import Prelude
 
@@ -27,7 +27,6 @@ data StoreStatus a
 
 storeStatusToMaybe :: forall a. StoreStatus a -> Maybe a
 storeStatusToMaybe (Stored a) = Just a
-
 storeStatusToMaybe _ = Nothing
 
 localStorageJsonDynamic :: forall a m. MonadFRP m => EncodeJson a => DecodeJson a => String -> Storage -> Event (Maybe a) -> m (Dynamic (StoreStatus a))

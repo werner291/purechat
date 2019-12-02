@@ -2,7 +2,7 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
 
-import CustomCombinators (RemoteResourceView, elClass, elemOnClick, remoteLoadingView)
+import CustomCombinators (RemoteResourceView, bridgeEventOverMaybe, elClass, elemOnClick, pulseSpinner, remoteLoadingView)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set as Set
@@ -46,9 +46,6 @@ channelDirectory rkss =
             dynev <- dynamic $ dyn_meta <#> \meta -> clickableLi (Tuple rId meta)
             pure $ switch dynev
           pure $ switch x
-          -- switchWeakDyn <$> weakDynamic $ d <#> \(Tuple rId viewdata) -> do
-          --   dynamic_ $ (viewdata $ pure 0) <#> \rd -> clickableLi (Tuple rId rd)
-          --   ?wut
 
         -- TODO get the display name in here somehow
         clickableLiInvite :: RoomId -> m (Event RoomId)
@@ -75,7 +72,5 @@ channelDirectory rkss =
           <$> el "ul" (dynamicList (Map.toUnfoldable <$> st.joined_rooms) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))
       
       pure $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined, pickedFromInvite ]
-  in do 
-    evm :: Dynamic (Maybe (Event RoomId)) <- remoteLoadingView rkss loadedView (pure unit)
-    pure $ switch (evm <#> fromMaybe never)
+  in bridgeEventOverMaybe <$> remoteLoadingView rkss pulseSpinner loadedView
 

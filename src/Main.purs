@@ -2,7 +2,6 @@ module Main where
 
 import Prelude
 
-import CustomCombinators (StoreStatus, localStorageJsonDynamic, storeStatusToMaybe)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
@@ -12,6 +11,7 @@ import Purechat.Types (SessionInfo)
 import Specular.Dom.Widget (class MonadWidget, runMainWidgetInBody)
 import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic, never, switch)
 import Specular.FRP.Fix (fixFRP_)
+import StorageFRP (StoreStatus, localStorageJsonDynamic, storeStatusToMaybe)
 import Web.HTML (window)
 import Web.HTML.Window (localStorage)
 import Web.Storage.Storage (Storage)
