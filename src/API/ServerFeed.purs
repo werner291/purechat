@@ -6,12 +6,13 @@ import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
-import Control.Monad.Cleanup (onCleanup)
+import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
 import CustomCombinators (RemoteResourceView(..), toLoadedUpdates)
 import Data.Argonaut (Json, decodeJson, getField, (.:))
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Filterable (filterMap)
+import Data.Foldable (foldM)
 import Data.FoldableWithIndex (foldlWithIndex)
 import Data.Map (Map, findMax)
 import Data.Map as Map
@@ -25,10 +26,13 @@ import Effect (Effect)
 import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
+import Effect.Console as Console
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, holdWeakDyn, newDynamic, newEvent, subscribeEvent_)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, holdWeakDyn, newDynamic, newEvent, subscribeEvent_, subscribeDyn_)
+import Effect.Ref as Ref
 import Specular.FRP.Async (startAff)
+import Unsafe.Coerce (unsafeCoerce)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomMeta -> String
@@ -189,10 +193,10 @@ succMaxKey m = fromMaybe 0 $ findMax m <#> (\entry -> entry.key + 1)
 foldStepTuple :: forall m. MonadFRP m =>
   Map RoomId (InternalRoomState m) ->
   Tuple RoomId RoomUpdate ->
-  Effect (Map RoomId (InternalRoomState m))
+  CleanupT Effect (Map RoomId (InternalRoomState m))
 foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
   Just (rst :: InternalRoomState m) -> do
-    rst.addUpdate ru
+    liftEffect $ rst.addUpdate ru
     pure st'
   Nothing -> do
     -- Intialize the room metadata by folding the initial set of events, and keeping an Effect to update it.
@@ -200,9 +204,18 @@ foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
     -- Initialize a map of (Dynamic Int) that indicate how many messages each view on the room wants to have loaded.
     -- The key is used to delete entries on cleannup.
     nd_demands <- newDynamic Map.empty
+
+    let 
+      total_demand = do
+        dems <- nd_demands.dynamic
+        foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 dems
+
+    subscribeDyn_ (\d -> Console.log (unsafeCoerce d)) total_demand
+
     -- A dynamic that accumlates messages (simply room events for now)
     -- Features lazy loading: see `nd_demands`
     nd_messages <- newDynamic $ ru.new_events
+
     pure
       $ Map.insert rId
           { cleanup: ((pure unit) :: Effect Unit)
@@ -233,13 +246,18 @@ serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResource
 serverState si = do
   rooms_st <- newDynamic (Map.empty :: Map RoomId (InternalRoomState m))
   updates <- (syncFeed si) :: m (Event SyncPollResult)
+  cleanups :: Ref.Ref (Effect Unit) <- liftEffect $ Ref.new (pure unit)
+
+  onCleanup $ Ref.read cleanups >>= \c -> c
+
   flip subscribeEvent_ updates \spr -> do
     st <- rooms_st.read
-    rooms_st.set =<< Array.foldM foldStepTuple st (Map.toUnfoldable spr.rooms.join)
+    (Tuple st' cleanup) <- runCleanupT $ Array.foldM foldStepTuple st (Map.toUnfoldable spr.rooms.join)
+    _ <- Ref.modify (\c -> c >>= const cleanup) cleanups
+    rooms_st.set st'
 
   joined_rooms <- toLoadedUpdates $ changed $ rooms_st.dynamic
 
   pure $ joined_rooms <#> case _ of
     RRLoaded jr -> RRLoaded { joined_rooms : (map _.output <$> rooms_st.dynamic), invited_to: pure $ Set.empty }
     RRLoading -> RRLoading
-
