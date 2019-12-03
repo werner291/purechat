@@ -6,13 +6,14 @@ import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
+import Control.Monad.Cleanup (onCleanup)
 import CustomCombinators (RemoteResourceView(..), toLoadedUpdates)
 import Data.Argonaut (Json, decodeJson, getField, (.:))
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Filterable (filterMap)
 import Data.FoldableWithIndex (foldlWithIndex)
-import Data.Map (Map)
+import Data.Map (Map, findMax)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Maybe as Maybe
@@ -182,6 +183,9 @@ initMeta rId =
   , name: Nothing
   }
 
+succMaxKey :: forall v. Map Int v -> Int
+succMaxKey m = fromMaybe 0 $ findMax m <#> (\entry -> entry.key + 1)
+
 foldStepTuple :: forall m. MonadFRP m =>
   Map RoomId (InternalRoomState m) ->
   Tuple RoomId RoomUpdate ->
@@ -191,7 +195,13 @@ foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
     rst.addUpdate ru
     pure st'
   Nothing -> do
+    -- Intialize the room metadata by folding the initial set of events, and keeping an Effect to update it.
     nd_meta <- newDynamic $ Array.foldl (flip foldEventIntoRoomState) (initMeta rId) ru.new_events
+    -- Initialize a map of (Dynamic Int) that indicate how many messages each view on the room wants to have loaded.
+    -- The key is used to delete entries on cleannup.
+    nd_demands <- newDynamic Map.empty
+    -- A dynamic that accumlates messages (simply room events for now)
+    -- Features lazy loading: see `nd_demands`
     nd_messages <- newDynamic $ ru.new_events
     pure
       $ Map.insert rId
@@ -203,7 +213,15 @@ foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
               nd_messages.set $ msg <> upt.new_events
           , output:
             { meta: nd_meta.dynamic
-            , messages: const $ pure nd_messages.dynamic
+            , messages: \demand -> do
+                -- Add a new "demand" dynamic to the set of demand dynamics.
+                demands <- liftEffect $ nd_demands.read
+                let cleanupKey = succMaxKey demands
+                liftEffect $ nd_demands.set (Map.insert cleanupKey demand demands)
+                -- Make sure to delete our demand once it's no longer needed to avoid retaining too many messages
+                onCleanup $ nd_demands.read >>= (nd_demands.set <<< Map.delete cleanupKey)
+                -- Return the list of messages, it'll eventually update to fit the demand.
+                pure nd_messages.dynamic
             }
           }
           st'
