@@ -1,43 +1,25 @@
 module CustomCombinators where
 
 import Prelude
+
+import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
 import Data.Either (Either(..), hush)
-import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Tuple (Tuple(..))
 import Data.Foldable (class Foldable, foldM)
-import Effect (Effect)
-import Effect.Aff (Aff, try)
-import Effect.Exception (Error)
-import Foreign.Object as Object
 import Data.Map (Map)
 import Data.Map as Map
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Tuple (Tuple(..))
+import Effect (Effect)
+import Effect.Aff (Aff, try)
+import Effect.Class (liftEffect)
+import Effect.Exception (Error)
+import Effect.Ref as Ref
+import Foreign.Object as Object
 import Specular.Dom.Browser (Node, TagName, Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP
-  ( class MonadFRP
-  , Behavior
-  , Dynamic
-  , Event
-  , WeakDynamic
-  , changed
-  , dynamic
-  , filterMapEvent
-  , fixFRP
-  , foldDynMaybe
-  , holdWeakDyn
-  , never
-  , sampleAt
-  , switch
-  , unWeakDynamic
-  , newDynamic
-  , newEvent
-  , subscribeEvent_
-  )
-import Effect.Class (liftEffect)
+import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, foldDynMaybe, holdWeakDyn, never, sampleAt, switch, unWeakDynamic, newDynamic, newEvent, subscribeEvent_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
-import Effect.Ref as Ref
-import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
 
 -- | Fires an event with the current value of the behavior 
 -- | whenever an event from the given event stream occurs.
@@ -170,5 +152,6 @@ fanOutM evt mkConsumer = do
     -- Register for cleanup once the fanOutM context dies.
     Tuple st_after cleanup <- runCleanupT $ foldM foldStepTuple st_before f
     _ <- Ref.modify (\c -> c >>= const cleanup) cleanups
+    st_dyn.set st_after
     pure unit
   pure (map (map _.output) st_dyn.dynamic)

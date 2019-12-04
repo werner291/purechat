@@ -1,6 +1,7 @@
 module Purechat.ServerFeed (serverState, KnownServerState, JoinedRoom, RoomMeta) where
 
 import Prelude
+
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
@@ -27,7 +28,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, foldDyn, holdWeakDyn, newDynamic, newEvent, subscribeDyn_)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, foldDyn, holdWeakDyn, newDynamic, newEvent, subscribeEvent_)
 import Specular.FRP.Async (startAff)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -187,18 +188,6 @@ initMeta rId =
 succMaxKey :: forall v. Map Int v -> Int
 succMaxKey m = fromMaybe 0 $ findMax m <#> (\entry -> entry.key + 1)
 
--- foldStepTuple :: forall m. MonadFRP m =>
---   Map RoomId (InternalRoomState m) ->
---   Tuple RoomId RoomUpdate ->
---   CleanupT Effect (Map RoomId (InternalRoomState m))
--- foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
---   Just (rst :: InternalRoomState m) -> do
---     liftEffect $ rst.addUpdate ru
---     pure st'
---   Nothing -> do
--- A Dynamic representing the currently known user-relevant state of the Matrix server
--- This data need not be entirely complete, it is simply what is known at the current
--- time, and of that, only the parts that we currently need.
 serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
 serverState si = do
   feed :: Event SyncPollResult <- syncFeed si
@@ -207,8 +196,9 @@ serverState si = do
       $ \rId ru rus -> do
           let
             foldUpdate ruu meta = Array.foldl (flip foldEventIntoRoomState) meta ruu.new_events
+            initMetaWithFirstEvents = foldUpdate ru $ initMeta rId
           -- Intialize the room metadata by folding the initial set of events, and keeping an Effect to update it.
-          nd_meta <- foldDyn foldUpdate (foldUpdate ru $ initMeta rId) rus
+          nd_meta <- foldDyn foldUpdate (initMetaWithFirstEvents) rus
           -- Initialize a map of (Dynamic Int) that indicate how many messages each view on the room wants to have loaded.
           -- The key is used to delete entries on cleannup.
           nd_demands <- newDynamic Map.empty
@@ -216,7 +206,7 @@ serverState si = do
             total_demand = do
               dems <- nd_demands.dynamic
               foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 dems
-          subscribeDyn_ (\d -> Console.log (unsafeCoerce d)) total_demand
+
           -- A dynamic that accumlates messages (simply room events for now)
           -- Features lazy loading: see `nd_demands`
           nd_messages <- newDynamic $ ru.new_events
@@ -236,6 +226,11 @@ serverState si = do
             }
   joined_rooms_rr :: Dynamic (RemoteResourceView (Map RoomId (JoinedRoom m))) <-
     toLoadedUpdates $ changed joined_rooms
+
+  subscribeEvent_ (\rr -> do
+    Console.log "rr"
+    Console.log $ unsafeCoerce rr) $ changed joined_rooms
+
   pure
     $ map
         ( map
