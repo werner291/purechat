@@ -72,5 +72,5 @@ channelDirectory rkss =
           <$> el "ul" (dynamicList (Map.toUnfoldable <$> st.joined_rooms) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))
       
       pure $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined, pickedFromInvite ]
-  in bridgeEventOverMaybe <$> remoteLoadingView rkss (el "div" pulseSpinner) loadedView
+  in bridgeEventOverMaybe <$> remoteLoadingView rkss pulseSpinner loadedView
 

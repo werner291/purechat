@@ -25,12 +25,10 @@ import Effect (Effect)
 import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
-import Effect.Console as Console
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, foldDyn, holdWeakDyn, newDynamic, newEvent, subscribeEvent_)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, foldDyn, holdWeakDyn, newDynamic, newEvent)
 import Specular.FRP.Async (startAff)
-import Unsafe.Coerce (unsafeCoerce)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomMeta -> String
@@ -62,6 +60,7 @@ type RoomMeta
 -- A bundle of Dynamics related to a given room.
 type JoinedRoom m
   = { messages :: Dynamic Int -> m (Dynamic (Array (MatrixEvent MatrixRoomEvent)))
+    , loadingMessages :: Dynamic Boolean
     , meta :: Dynamic RoomMeta
     }
 
@@ -198,7 +197,7 @@ serverState si = do
             foldUpdate ruu meta = Array.foldl (flip foldEventIntoRoomState) meta ruu.new_events
             initMetaWithFirstEvents = foldUpdate ru $ initMeta rId
           -- Intialize the room metadata by folding the initial set of events, and keeping an Effect to update it.
-          nd_meta <- foldDyn foldUpdate (initMetaWithFirstEvents) rus
+          nd_meta <- foldDyn foldUpdate initMetaWithFirstEvents rus
           -- Initialize a map of (Dynamic Int) that indicate how many messages each view on the room wants to have loaded.
           -- The key is used to delete entries on cleannup.
           nd_demands <- newDynamic Map.empty
@@ -207,9 +206,13 @@ serverState si = do
               dems <- nd_demands.dynamic
               foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 dems
 
+            -- loaded_num = loaded_num
+
           -- A dynamic that accumlates messages (simply room events for now)
           -- Features lazy loading: see `nd_demands`
-          nd_messages <- newDynamic $ ru.new_events
+          nd_messages :: Dynamic (Array (MatrixEvent MatrixRoomEvent)) <- 
+            foldDyn (\ru' evts -> evts <> ru'.new_events) ru.new_events rus
+
           pure
             { messages:
               \demand -> do
@@ -221,15 +224,13 @@ serverState si = do
                 -- Make sure to delete our demand once it's no longer needed to avoid retaining too many messages
                 onCleanup $ nd_demands.read >>= (nd_demands.set <<< Map.delete cleanupKey)
                 -- Return the list of messages, it'll eventually update to fit the demand.
-                pure nd_messages.dynamic
+                pure nd_messages
+            , loadingMessages: (pure false) :: Dynamic Boolean
             , meta: nd_meta
             }
+
   joined_rooms_rr :: Dynamic (RemoteResourceView (Map RoomId (JoinedRoom m))) <-
     toLoadedUpdates $ changed joined_rooms
-
-  subscribeEvent_ (\rr -> do
-    Console.log "rr"
-    Console.log $ unsafeCoerce rr) $ changed joined_rooms
 
   pure
     $ map

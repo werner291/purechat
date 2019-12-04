@@ -16,7 +16,7 @@ import Effect.Exception (Error)
 import Effect.Ref as Ref
 import Foreign.Object as Object
 import Specular.Dom.Browser (Node, TagName, Attrs)
-import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
+import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr', el)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, foldDynMaybe, holdWeakDyn, never, sampleAt, switch, unWeakDynamic, newDynamic, newEvent, subscribeEvent_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
@@ -103,7 +103,7 @@ affButtonLoopSimplified { ready, loading, success } =
         Loaded (Right a) -> success a >>= (const $ pure never)
 
 pulseSpinner :: forall m. MonadWidget m => m Unit
-pulseSpinner = elClass "i" "fas fa-spinner fa-pulse" $ pure unit
+pulseSpinner = el "div" $ elClass "i" "fas fa-spinner fa-pulse" $ pure unit
 
 holdDynLatestJust :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
 holdDynLatestJust updt = map unWeakDynamic $ holdWeakDyn updt
