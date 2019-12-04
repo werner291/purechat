@@ -56,6 +56,10 @@ data RemoteResourceView a
   = RRLoading
   | RRLoaded a
 
+instance functorRRView :: Functor RemoteResourceView where
+  map f (RRLoading) = RRLoading
+  map f (RRLoaded a) = RRLoaded (f a)
+
 remoteLoadingView :: forall a b m. MonadWidget m => Dynamic (RemoteResourceView a) -> m Unit -> (a -> m b) -> m (Dynamic (Maybe b))
 remoteLoadingView d loadingView loadedView =
   dynamic $ d
