@@ -1,18 +1,43 @@
 module CustomCombinators where
 
 import Prelude
-
 import Data.Either (Either(..), hush)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
+import Data.Foldable (class Foldable, foldM)
+import Effect (Effect)
 import Effect.Aff (Aff, try)
 import Effect.Exception (Error)
 import Foreign.Object as Object
+import Data.Map (Map)
+import Data.Map as Map
 import Specular.Dom.Browser (Node, TagName, Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, foldDynMaybe, holdWeakDyn, never, sampleAt, switch, unWeakDynamic)
+import Specular.FRP
+  ( class MonadFRP
+  , Behavior
+  , Dynamic
+  , Event
+  , WeakDynamic
+  , changed
+  , dynamic
+  , filterMapEvent
+  , fixFRP
+  , foldDynMaybe
+  , holdWeakDyn
+  , never
+  , sampleAt
+  , switch
+  , unWeakDynamic
+  , newDynamic
+  , newEvent
+  , subscribeEvent_
+  )
+import Effect.Class (liftEffect)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
+import Effect.Ref as Ref
+import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
 
 -- | Fires an event with the current value of the behavior 
 -- | whenever an event from the given event stream occurs.
@@ -40,11 +65,13 @@ remoteLoadingView d loadingView loadedView =
 
 toLoadedUpdates :: forall a m. MonadFRP m => Event a -> m (Dynamic (RemoteResourceView a))
 toLoadedUpdates updt =
-  let 
+  let
     _step :: a -> RemoteResourceView a -> Maybe (RemoteResourceView a)
     _step a (RRLoaded _) = Nothing
+
     _step a RRLoading = Just (RRLoaded a)
-  in foldDynMaybe _step RRLoading updt
+  in
+    foldDynMaybe _step RRLoading updt
 
 -- | Shorthand combinator to extract a value `a` from a `(Dynamic (Maybe a))`
 dynamicMaybe :: forall a b m. MonadWidget m => Dynamic (Maybe a) -> (a -> m b) -> m (Dynamic (Maybe b))
@@ -100,3 +127,44 @@ elemOnClick :: forall m. MonadWidget m => String -> Attrs -> m Unit -> m (Event 
 elemOnClick tagName attrs inner = do
   Tuple node _ <- elAttr' tagName attrs inner
   domEventWithSample (\_ -> pure unit) "click" node
+
+type FanOutInternal v o
+  = { addUpdate :: v -> Effect Unit -- Feed a new event to the output
+    , output :: o -- The output to expose in the output dictionary.
+    }
+
+-- | Take an `Event (f (Tuple k v))` and monadically create some new output every time a new key is encountered.
+-- | For instance, one can use `foldDyn` in the monadic action to create a per-key state machine.
+-- | This is more efficient than filtering on each key as the keys are routed to outputs in O(log n) time.
+fanOutM :: forall k v o m f. Foldable f => Ord k => MonadFRP m => Event (f (Tuple k v)) -> (k -> v -> Event v -> (CleanupT Effect o)) -> m (Dynamic (Map k o))
+fanOutM evt mkConsumer = do
+  -- Internal Dynamic that keeps track of all outputs, containing the output itself and the callback to give it new events
+  st_dyn <- newDynamic (Map.empty :: Map k (FanOutInternal v o))
+  -- Accumulate a cleanup action that can be added to through Effect
+  cleanups :: Ref.Ref (Effect Unit) <- liftEffect $ Ref.new (pure unit)
+  -- On cleanup, just read and execute.
+  onCleanup $ Ref.read cleanups >>= \c -> c
+  -- Subscribe to the event stream.
+  flip subscribeEvent_ evt \f -> do
+    -- Dereference the current set of outputs.
+    st_before <- st_dyn.read
+    -- Check if an output for that key already exists.
+    let
+      foldStepTuple :: Map k (FanOutInternal v o) -> Tuple k v -> CleanupT Effect (Map k (FanOutInternal v o))
+      foldStepTuple st (Tuple kk vv) = case Map.lookup kk st of
+        -- Yes it does, just fire the event.
+        Just { addUpdate } -> do
+          liftEffect $ addUpdate vv
+          pure st
+        Nothing -> do
+          -- Create a new event to feed events into
+          evt' <- newEvent
+          -- Initialize the output using the provided consumer
+          output <- mkConsumer kk vv evt'.event
+          -- Add it to the list of outputs
+          pure $ Map.insert kk { addUpdate: evt'.fire, output } st
+    -- Register for cleanup once the fanOutM context dies.
+    Tuple st_after cleanup <- runCleanupT $ foldM foldStepTuple st_before f
+    _ <- Ref.modify (\c -> c >>= const cleanup) cleanups
+    pure unit
+  pure (map (map _.output) st_dyn.dynamic)

@@ -1,13 +1,12 @@
 module Purechat.ServerFeed (serverState, KnownServerState, JoinedRoom, RoomMeta) where
 
 import Prelude
-
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
 import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
-import CustomCombinators (RemoteResourceView(..), toLoadedUpdates)
+import CustomCombinators (RemoteResourceView(..), toLoadedUpdates, fanOutM)
 import Data.Argonaut (Json, decodeJson, getField, (.:))
 import Data.Array as Array
 import Data.Either (Either(..))
@@ -29,7 +28,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, decodeRoomEvent, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, holdWeakDyn, newDynamic, newEvent, subscribeEvent_, subscribeDyn_)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, holdWeakDyn, newDynamic, newEvent, subscribeEvent_, subscribeDyn_, foldDyn)
 import Effect.Ref as Ref
 import Specular.FRP.Async (startAff)
 import Unsafe.Coerce (unsafeCoerce)
@@ -190,74 +189,61 @@ initMeta rId =
 succMaxKey :: forall v. Map Int v -> Int
 succMaxKey m = fromMaybe 0 $ findMax m <#> (\entry -> entry.key + 1)
 
-foldStepTuple :: forall m. MonadFRP m =>
-  Map RoomId (InternalRoomState m) ->
-  Tuple RoomId RoomUpdate ->
-  CleanupT Effect (Map RoomId (InternalRoomState m))
-foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
-  Just (rst :: InternalRoomState m) -> do
-    liftEffect $ rst.addUpdate ru
-    pure st'
-  Nothing -> do
-    -- Intialize the room metadata by folding the initial set of events, and keeping an Effect to update it.
-    nd_meta <- newDynamic $ Array.foldl (flip foldEventIntoRoomState) (initMeta rId) ru.new_events
-    -- Initialize a map of (Dynamic Int) that indicate how many messages each view on the room wants to have loaded.
-    -- The key is used to delete entries on cleannup.
-    nd_demands <- newDynamic Map.empty
-
-    let 
-      total_demand = do
-        dems <- nd_demands.dynamic
-        foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 dems
-
-    subscribeDyn_ (\d -> Console.log (unsafeCoerce d)) total_demand
-
-    -- A dynamic that accumlates messages (simply room events for now)
-    -- Features lazy loading: see `nd_demands`
-    nd_messages <- newDynamic $ ru.new_events
-
-    pure
-      $ Map.insert rId
-          { cleanup: ((pure unit) :: Effect Unit)
-          , addUpdate: \upt -> do
-              m <- nd_meta.read
-              nd_meta.set $ Array.foldl (flip foldEventIntoRoomState) m upt.new_events
-              msg <- nd_messages.read
-              nd_messages.set $ msg <> upt.new_events
-          , output:
-            { meta: nd_meta.dynamic
-            , messages: \demand -> do
-                -- Add a new "demand" dynamic to the set of demand dynamics.
-                demands <- liftEffect $ nd_demands.read
-                let cleanupKey = succMaxKey demands
-                liftEffect $ nd_demands.set (Map.insert cleanupKey demand demands)
-                -- Make sure to delete our demand once it's no longer needed to avoid retaining too many messages
-                onCleanup $ nd_demands.read >>= (nd_demands.set <<< Map.delete cleanupKey)
-                -- Return the list of messages, it'll eventually update to fit the demand.
-                pure nd_messages.dynamic
-            }
-          }
-          st'
-
+-- foldStepTuple :: forall m. MonadFRP m =>
+--   Map RoomId (InternalRoomState m) ->
+--   Tuple RoomId RoomUpdate ->
+--   CleanupT Effect (Map RoomId (InternalRoomState m))
+-- foldStepTuple st' (Tuple rId ru) = case (Map.lookup rId st') of
+--   Just (rst :: InternalRoomState m) -> do
+--     liftEffect $ rst.addUpdate ru
+--     pure st'
+--   Nothing -> do
 -- A Dynamic representing the currently known user-relevant state of the Matrix server
 -- This data need not be entirely complete, it is simply what is known at the current
 -- time, and of that, only the parts that we currently need.
 serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
-serverState si = do
-  rooms_st <- newDynamic (Map.empty :: Map RoomId (InternalRoomState m))
-  updates <- (syncFeed si) :: m (Event SyncPollResult)
-  cleanups :: Ref.Ref (Effect Unit) <- liftEffect $ Ref.new (pure unit)
-
-  onCleanup $ Ref.read cleanups >>= \c -> c
-
-  flip subscribeEvent_ updates \spr -> do
-    st <- rooms_st.read
-    (Tuple st' cleanup) <- runCleanupT $ Array.foldM foldStepTuple st (Map.toUnfoldable spr.rooms.join)
-    _ <- Ref.modify (\c -> c >>= const cleanup) cleanups
-    rooms_st.set st'
-
-  joined_rooms <- toLoadedUpdates $ changed $ rooms_st.dynamic
-
-  pure $ joined_rooms <#> case _ of
-    RRLoaded jr -> RRLoaded { joined_rooms : (map _.output <$> rooms_st.dynamic), invited_to: pure $ Set.empty }
-    RRLoading -> RRLoading
+serverState si = do 
+  feed <- syncFeed si
+  joined_rooms <- fanOutM (feed <#> \ru -> (Map.toUnfoldable $ ru.rooms.join) :: Array _)
+    $ \rId ru rus -> do
+        let
+          foldUpdate ruu meta = Array.foldl (flip foldEventIntoRoomState) meta ruu.new_events
+        -- Intialize the room metadata by folding the initial set of events, and keeping an Effect to update it.
+        nd_meta <- foldDyn foldUpdate (foldUpdate ru $ initMeta rId) rus
+        -- Initialize a map of (Dynamic Int) that indicate how many messages each view on the room wants to have loaded.
+        -- The key is used to delete entries on cleannup.
+        nd_demands <- newDynamic Map.empty
+        let
+          total_demand = do
+            dems <- nd_demands.dynamic
+            foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 dems
+        subscribeDyn_ (\d -> Console.log (unsafeCoerce d)) total_demand
+        -- A dynamic that accumlates messages (simply room events for now)
+        -- Features lazy loading: see `nd_demands`
+        nd_messages <- newDynamic $ ru.new_events
+        pure {
+          messages: \demand -> do
+              -- Add a new "demand" dynamic to the set of demand dynamics.
+              demands <- liftEffect $ nd_demands.read
+              let
+                cleanupKey = succMaxKey demands
+              liftEffect $ nd_demands.set (Map.insert cleanupKey demand demands)
+              -- Make sure to delete our demand once it's no longer needed to avoid retaining too many messages
+              onCleanup $ nd_demands.read >>= (nd_demands.set <<< Map.delete cleanupKey)
+              -- Return the list of messages, it'll eventually update to fit the demand.
+              pure nd_messages.dynamic
+          , meta: nd_meta
+        }
+ -- rooms_st <- newDynamic (Map.empty :: Map RoomId (InternalRoomState m)) 
+ --  
+ -- cleanups :: Ref.Ref (Effect Unit) <- liftEffect $ Ref.new (pure unit) 
+ -- onCleanup $ Ref.read cleanups >>= \c -> c 
+ -- flip subscribeEvent_ updates \spr -> do 
+ --   st <- rooms_st.read 
+ --   (Tuple st' cleanup) <- runCleanupT $ Array.foldM foldStepTuple st (Map.toUnfoldable spr.rooms.join) 
+ --   _ <- Ref.modify (\c -> c >>= const cleanup) cleanups 
+ --   rooms_st.set st' 
+ -- joined_rooms <- toLoadedUpdates $ changed $ rooms_st.dynamic 
+ -- pure $ joined_rooms <#> case _ of 
+ --   RRLoaded jr -> RRLoaded { joined_rooms : (map _.output <$> rooms_st.dynamic), invited_to: pure $ Set.empty } 
+ --   RRLoading -> RRLoading
