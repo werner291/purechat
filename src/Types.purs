@@ -1,18 +1,40 @@
 module Purechat.Types where
 
 import Prelude
+
 import Affjax (URL)
 import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional, (.:))
 import Data.Either (Either(..))
-import Data.Map (Map)
 import Data.Maybe (Maybe, fromMaybe)
-import Specular.FRP (Dynamic)
+import Data.Newtype (class Newtype, wrap)
+import Data.Time.Duration (Milliseconds(..))
+
+newtype EventId = MkEventId String
+
+derive instance newtypeEventId :: Newtype EventId _
+derive newtype instance eqEventId :: Eq EventId
+derive newtype instance ordEventId :: Ord EventId
+
+-- Combination of milliseconds since unix epoch and event id.
+data TimeEventId = TimeEventId Milliseconds EventId
+
+derive instance eqTimeEventId :: Eq TimeEventId
+
+instance ordTimeEventId :: Ord TimeEventId where
+  compare (TimeEventId ta ea) (TimeEventId tb eb) = 
+    case compare ta tb of
+      EQ -> compare ea eb
+      c -> c
 
 type MatrixEvent a
-  = { event_id :: String
+  = { event_id :: EventId
     , sender :: UserId
     , content :: Either String a
+    , origin_server_ts :: Milliseconds
     }
+
+getTimeId :: forall a. MatrixEvent a -> TimeEventId
+getTimeId ev = TimeEventId ev.origin_server_ts ev.event_id
 
 class MatrixEventType a where
   eventTypeString :: a -> String
@@ -49,37 +71,38 @@ data MatrixRoomEvent
 decodeRoomEvent :: Json -> Either String (MatrixEvent MatrixRoomEvent)
 decodeRoomEvent json = do
   o <- decodeJson json
-  event_id <- o .: "event_id"
+  event_id <- wrap <$> o .: "event_id"
   sender <- o .: "sender"
   evtType <- o .: "type"
+  origin_server_ts <- Milliseconds <$> o .: "origin_server_ts"
   state_key :: String <- fromMaybe "" <$> getFieldOptional o "state_key"
   let
     res = case evtType of
       "m.room.message" -> do
         content <- getField o "content"
         body <- getField content "body"
-        pure { event_id, sender, content: (Right (Message { body })) }
+        pure { origin_server_ts, event_id, sender, content: (Right (Message { body })) }
       "m.room.member" -> do
         content <- getField o "content"
         displayname <- getFieldOptional content "displayname"
         avatar_url <- getFieldOptional content "avatar_url"
         membership <- getField content "membership"
-        pure { event_id, sender, content: (Right (Membership { profile: { displayname, avatar_url }, membership, user_id: UserId state_key })) }
+        pure { origin_server_ts, event_id, sender, content: (Right (Membership { profile: { displayname, avatar_url }, membership, user_id: UserId state_key })) }
       "m.room.name" -> do
         content <- getField o "content"
         name <- getField content "name"
-        pure { event_id, sender, content: (Right $ RoomName name) }
+        pure { origin_server_ts, event_id, sender, content: (Right $ RoomName name) }
       "m.room.topic" -> do
         content <- getField o "content"
         topic <- getField content "topic"
-        pure { event_id, sender, content: (Right $ RoomTopic topic) }
+        pure { origin_server_ts, event_id, sender, content: (Right $ RoomTopic topic) }
       "m.room.canonical_alias" -> do
         content <- getField o "content"
         ca <- getField content "alias"
-        pure { event_id, sender, content: (Right $ RoomCanonicalAlias ca) }
-      _ -> pure { event_id, sender, content: (Left evtType) }
+        pure { origin_server_ts,  event_id, sender, content: (Right $ RoomCanonicalAlias ca) }
+      _ -> pure { origin_server_ts, event_id, sender, content: (Left evtType) }
   case res of
-    Left decodeErr -> pure { event_id, sender, content: (Left decodeErr) }
+    Left decodeErr -> pure { origin_server_ts, event_id, sender, content: (Left decodeErr) }
     Right evt -> Right evt
 
 newtype PrevBatchToken

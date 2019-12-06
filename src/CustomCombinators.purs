@@ -155,3 +155,6 @@ fanOutM evt mkConsumer = do
     st_dyn.set st_after
     pure unit
   pure (map (map _.output) st_dyn.dynamic)
+
+affSuccesses :: forall a. Dynamic (RequestState a) -> Event a
+affSuccesses inpt = filterMapEvent fromLoaded $ changed inpt

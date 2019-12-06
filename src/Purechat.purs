@@ -1,6 +1,7 @@
 module Purechat.Purechat (primaryView) where
 
 import Prelude
+
 import API.Profile (getProfile)
 import CustomCombinators (RemoteResourceView, bridgeEventOverMaybe, elClass, elemOnClick, pulseSpinner, remoteLoadingView, toLoadedUpdates)
 import Data.Map as Map
@@ -16,7 +17,7 @@ import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, dynamic, filterMapEvent, fixFRP_, holdDyn, leftmost, never, switch)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, dynamic, filterMapEvent, fixFRP_, holdDyn, leftmost, never, readDynamic, switch)
 import Specular.FRP.Async (RequestState, asyncRequest, fromLoaded)
 
 profileBar :: forall m. MonadWidget m => SessionInfo -> UserProfile -> m { openProfile :: Event Unit }
@@ -103,7 +104,15 @@ primaryView si =
                   _ <- createRoomWidget si
                   pure NoOutput
                 ShowRoom rid -> do
-                  _ <- remoteLoadingView server_state pulseSpinner $ \st -> roomView si rid $ (Map.lookup rid <$> st.joined_rooms)
+                  _ <- remoteLoadingView server_state pulseSpinner $ \st -> do
+                    -- Note: We specifically take a snapshot of the joined_rooms here!
+                    -- We cannot simply map as that would cause the dynamic to update when unrelated rooms change.
+                    -- Perhaps this shows that `Dynamic (Map k v)` isn't quite the right idea here.
+                    -- Maybe some structure where you can subscribe to updates/insertions/deletions,
+                    -- similar to how fanOutM works?
+                    roomD <- readDynamic (Map.lookup rid <$> st.joined_rooms)
+                    -- Yuck, the `pure` here should be a Dynamic that's dedicated to that room.
+                    roomView si rid (pure roomD)
                   pure NoOutput
                 PickRoom -> do
                   text "Welcome! Please select a room to get started."

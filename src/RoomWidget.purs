@@ -10,6 +10,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
+import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
@@ -20,7 +21,7 @@ import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (checkbox, getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, fixFRP, holdDyn, pull, readBehavior, subscribeEvent_, tagDyn)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, filterEvent, fixFRP, foldDyn, holdDyn, pull, readBehavior, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Unsafe.Coerce (unsafeCoerce)
@@ -115,6 +116,9 @@ scrollTopDyn n = do
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
 joinedRoomView si rId room = do
+
+  liftEffect $ Console.log "Room."
+
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
   elClass "div" "room-meta" do
@@ -123,15 +127,24 @@ joinedRoomView si rId room = do
   -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
 
-  msgs <- room.messages $ pure 10
+  messages <- fixFRP \requestMore -> do
 
-  -- List of room events
-  (Tuple msgListNode _) <-
-    elClass' "div" "room-messages" $ dynamicList_ msgs $ \devt -> dynamic_ $ devt <#> (viewEvent si room.meta)
-  -- The checkbox with label to auto-scroll to the bottom.
-  -- SIDE EFFECTS: this widget affects the message list!
-  autoScrollBar msgListNode (const unit <$> changed msgs)
-  scroll <- scrollTopDyn msgListNode
+    demand <- foldDyn (\a b -> b+10) 10 requestMore
+
+    msgs <- room.messages $ demand
+
+    -- List of room events
+    (Tuple msgListNode _) <-
+      elClass' "div" "room-messages" $ dynamicList_ msgs $ \devt -> dynamic_ $ devt <#> (viewEvent si room.meta)
+    -- The checkbox with label to auto-scroll to the bottom.
+    -- SIDE EFFECTS: this widget affects the message list!
+    autoScrollBar msgListNode (const unit <$> changed msgs)
+    scroll <- scrollTopDyn msgListNode
+
+    let requestMore_out = filterEvent (\v -> v==0.0) (changed scroll) <#> const unit
+
+    pure $ Tuple requestMore_out msgs
+
   -- extraEvents <- asyncRequestMaybe do
   --   s <- scroll
   --   if s > 0 
