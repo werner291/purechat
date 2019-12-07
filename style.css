@@ -112,6 +112,10 @@ button {
     flex-direction: row;
 }
 
+.message-wrapper .msg {
+    min-width: 0;
+}
+
 .message-wrapper .username {
     font-size: small;
     font-weight: bold;
@@ -122,12 +126,14 @@ button {
     font-size: small;
     font-weight: 500;
     margin: 1mm;
+    word-break: break-word;
 }
 
 .message-wrapper img.avatar {
     max-height: 8mm;
     max-width: 8mm;
     margin: 1mm 2mm;
+    flex-shrink: 0;
 }
 
 h2 {
