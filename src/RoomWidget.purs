@@ -127,6 +127,8 @@ joinedRoomView si rId room = do
   -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
 
+  dynamic_ $ room.loadingMessages <#> \l -> when l pulseSpinner
+
   messages <- fixFRP \requestMore -> do
 
     demand <- foldDyn (\a b -> b+10) 10 requestMore
@@ -145,18 +147,6 @@ joinedRoomView si rId room = do
 
     pure $ Tuple requestMore_out msgs
 
-  -- extraEvents <- asyncRequestMaybe do
-  --   s <- scroll
-  --   if s > 0 
-  --     then pure Nothing
-  --     else do
-  --       r <- rd
-  --       r.prev_batch
-  --       page <- API.Rooms.getEventsUpto si rid r.prev_batch
-  -- subscribeDyn_ (\v -> when (v == 0.0) do
-  --   rd_current <- readDynamic $ rd
-  --   Console.log $ "Gib messages!" <> (unPrevBatchToken rd_current.prev_batch)
-  --     ) scroll
   -- Message composition widget, which will produce message events whenever "send" is clicked.
   msg <- composeMessageWidget
   currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))
