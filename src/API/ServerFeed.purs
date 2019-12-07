@@ -31,7 +31,7 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, TimeEventId, UserId, UserProfile, decodeRoomEvent, getTimeId, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, unWeakDynamic)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, filterMapEvent, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, unWeakDynamic)
 import Specular.FRP.Async (asyncRequestMaybe, startAff)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
@@ -215,14 +215,16 @@ loadMessageLoop :: forall m. MonadFRP m =>
 loadMessageLoop si rId demand init_batchtok init_messages updates =
   fixFRP
     $ \{ deficit, batch_token_updates } -> do
-
-        batch_token :: Dynamic (Maybe PrevBatchToken) <- holdDyn init_batchtok batch_token_updates
+        -- Keeps track of which token to load more messages from.
+        -- Becomes Nothing if no more messages are available.
+        load_from_token :: Dynamic (Maybe PrevBatchToken) <- 
+          holdDyn init_batchtok batch_token_updates
 
         loadMoreResult <- affSuccesses <$> asyncRequestMaybe do
           d <- fromMaybe 0 <$> unWeakDynamic deficit
-          b <- batch_token
+          b <- load_from_token
           if d > 0 
-            then pure $ (getEventsUpto si rId <$> b)
+            then pure $ (getEventsUpto si rId <$> b) -- map over Maybe to prevent fetching if we're out of messages.
             else pure Nothing
 
         let 
@@ -234,15 +236,13 @@ loadMessageLoop si rId demand init_batchtok init_messages updates =
         nd_messages :: Dynamic (Map TimeEventId (MatrixEvent MatrixRoomEvent)) 
           <- foldDyn (<>) (timsestampify init_messages) room_event_sources
 
-        -- getEventsUpto si rId
-        -- A dynamic that accumlates messages (simply room events for now)
-        -- Features lazy loading: see `nd_demands`
         let 
           linearized = map (List.toUnfoldable <<< Map.values) nd_messages
           total_num = linearized <#> Array.length
           deficit_fut = demand `lift2 (-)` total_num
+          batch_token_updates_n = map (\r -> if Array.null r.chunk then Nothing else r.from) loadMoreResult
 
-        pure $ Tuple {deficit:deficit_fut,batch_token_updates:loadMoreResult <#> _.from} linearized
+        pure $ Tuple {deficit:deficit_fut,batch_token_updates:batch_token_updates_n} linearized
 
 mkRoomFeed :: forall m. MonadFRP m => SessionInfo -> RoomId -> RoomUpdate -> Event (RoomUpdate) -> CleanupT Effect (JoinedRoom m)
 mkRoomFeed si rId ru rus = do

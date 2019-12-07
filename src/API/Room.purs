@@ -6,7 +6,7 @@ import API.Core (getJsonAuthed, postJsonAuthed, responseOkOrBust, responseOkWith
 import Data.Argonaut (decodeJson, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set (Set)
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
@@ -154,9 +154,10 @@ getEventsUpto si rId upto = do
         dec = do
             o <- decodeJson json
             chunk <- traverse decodeRoomEvent =<< o .: "chunk"
-            state <- traverse decodeRoomEvent =<< o .: "state"
-            from <- map PrevBatchToken <$> o .:? "from"
-            to <- map PrevBatchToken <$> o .:? "to"
+            s_maybe :: Maybe _ <- o .:? "state"
+            state <- traverse decodeRoomEvent $ (fromMaybe [] s_maybe)
+            from <- map PrevBatchToken <$> o .:? "start"
+            to <- map PrevBatchToken <$> o .:? "end"
             pure {chunk,state,from,to}
 
     case dec of
