@@ -4,7 +4,7 @@ import Prelude
 
 import API.Core (sendMessage)
 import API.Rooms (leaveRoom)
-import CustomCombinators (affButtonLoopSimplified, clockMilliseconds, dynamicMaybe_, elClass, elClass', holdPast, pulseSpinner, subscribeEvent)
+import CustomCombinators (affButtonLoopSimplified, clockMilliseconds, dynamicMaybe_, elClass, elClass', holdPast, pulseSpinner, subscribeEvent, withPast)
 import Data.Either (Either(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -12,6 +12,7 @@ import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
+import Effect.Timer (setTimeout)
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
@@ -22,7 +23,7 @@ import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, filterEvent, fixFRP, foldDyn, holdDyn, readDynamic, sampleAt, subscribeEvent_, tagDyn)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, filterEvent, filterMapEvent, fixFRP, foldDyn, holdDyn, readDynamic, sampleAt, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Specular.Ref (newRef)
@@ -165,8 +166,9 @@ joinedRoomView si rId room = do
 
     let 
       infscrollStep = 10
-      init_load = 20
-    demand <- foldDyn (\a b -> b+infscrollStep) 20 requestMore
+      init_load = 25
+
+    demand <- foldDyn (\a b -> b+infscrollStep) init_load requestMore
 
     subscribeEvent_ (\_ -> Console.log "Requesting more!") requestMore 
 
@@ -190,23 +192,28 @@ joinedRoomView si rId room = do
 
     -- Not the most elegant, but polling works, I guess?
     msgListHeightSamples <- scrollHeightSample msgListNode
-    currHeight <- liftEffect $ scrollHeight (unsafeCoerce msgListNode)
     pastHeightD <- holdPast msgListHeightSamples
+    pastScrollD <- holdPast (changed scrl)
 
     flip subscribeEvent_ msgListHeightSamples \newHeight -> do
       scrlAt <- readDynamic scrl
+      pastScrlAt <- fromMaybe 0.0 <$> readDynamic pastScrollD
       listVisibleHeight <- offsetHeight (unsafeCoerce msgListNode)
       pastHeight <- fromMaybe 0.0 <$> readDynamic pastHeightD
       when (newHeight > pastHeight && scrlAt + listVisibleHeight == pastHeight) scrollToBottom
 
+    _ <- liftEffect $ setTimeout 100 scrollToBottom
+
+    scrollHitZero <- filterMapEvent (if _ then Just unit else Nothing) <$> withPast (\p n -> n == 0.0 && p > n) 0.0 (changed scrl)
+
     -- Requesting more logic.
     let 
       -- Event that fires whenevr the user has hit the top of the page.
-      scrollHitZero = filterEvent (\v -> v==0.0) (changed scrl) <#> const unit
+      
       -- scrollHitZero filtered by whether new messages are being loaded.
-      requestMore_out = filterEvent identity $ sampleAt (scrollHitZero <#> const identity) (current room.loadingMessages)
+      requestMore_out = filterEvent identity $ sampleAt (scrollHitZero <#> const not) (current room.loadingMessages)
 
-    pure $ Tuple scrollHitZero msgs
+    pure $ Tuple requestMore_out msgs
 
   -- Message composition widget, which will produce message events whenever "send" is clicked.
   msg <- composeMessageWidget

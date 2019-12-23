@@ -28,9 +28,10 @@ import Effect (Effect)
 import Effect.Aff (Aff, throwError)
 import Effect.Aff as EE
 import Effect.Class (liftEffect)
+import Effect.Class.Console as Console
 import Foreign.Object (Object)
 import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, TimeEventId, UserId, UserProfile, decodeRoomEvent, getTimeId, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_, subscribeEvent_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, startAff)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
@@ -201,13 +202,26 @@ tupleizeFeed feed = feed <#> \ru -> (Map.toUnfoldable $ ru.rooms.join)
 combineDemands :: Dynamic (Map Int (Dynamic Int)) -> Dynamic Int
 combineDemands dems = foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 =<< dems
 
-timestampify :: forall e. Array (MatrixEvent e) -> Map TimeEventId (MatrixEvent e)
-timestampify evts = Map.fromFoldable $ evts <#> \ev -> Tuple (getTimeId ev) ev
-
 type EventsPage
   = { start :: Maybe PrevBatchToken
     , events :: Array (MatrixEvent MatrixRoomEvent)
     }
+
+mergeMonoidEvents :: forall a. Monoid a => Event a -> Event a -> Event a
+mergeMonoidEvents evA evB = mergeEvents pure pure (\l r -> pure (l <> r)) evA evB
+
+-- Given an initial page of events and a feed of arrays of room events, collect these into a properly-ordered array of events.
+collectRoomEvents ::
+  forall m.
+  MonadFRP m =>
+  EventsPage ->
+  Event (Array (MatrixEvent MatrixRoomEvent)) -> m (Dynamic (Array (MatrixEvent MatrixRoomEvent)))
+collectRoomEvents init pageUpdates = do
+  let
+    timestampify :: forall e. Array (MatrixEvent e) -> Map TimeEventId (MatrixEvent e)
+    timestampify evts = Map.fromFoldable $ evts <#> \ev -> Tuple (getTimeId ev) ev
+  evts <- foldDyn (<>) (timestampify init.events) (timestampify <$> pageUpdates)
+  pure $ map (List.toUnfoldable <<< Map.values) evts
 
 -- | Run the loop that merges numbers 
 loadMessageLoop ::
@@ -225,24 +239,20 @@ loadMessageLoop ::
 loadMessageLoop si rId demand init_page updates =
   fixFRP
     $ \new_pages -> do
-        let
-          pages_events :: Event (Map TimeEventId (MatrixEvent MatrixRoomEvent))
-          pages_events = new_pages <#> _.events >>> timestampify
 
-          all_new_events :: Event (Map TimeEventId (MatrixEvent MatrixRoomEvent))
-          all_new_events = mergeEvents pure pure (\l r -> pure (l <> r)) (timestampify <$> updates) pages_events
-        nd_messages :: Dynamic (Map TimeEventId (MatrixEvent MatrixRoomEvent)) <-
-          foldDyn (<>) (timestampify init_page.events) all_new_events
+        -- All room events in an ordered timeline.
+        nd_messages <- collectRoomEvents init_page $ mergeMonoidEvents (new_pages <#> _.events) updates
+
         -- Keeps track of which token to load more messages from.
         -- Becomes Nothing if no more messages are available.
-        load_from_token :: Dynamic (Maybe PrevBatchToken) <-
-          holdDyn init_page.start (new_pages <#> _.start)
-        let
-          -- Turn the map into a sorted array.
-          linearized = map (List.toUnfoldable <<< Map.values) nd_messages
+        load_from_token :: Dynamic (Maybe PrevBatchToken) <- holdDyn init_page.start (new_pages <#> _.start)
 
+        let
           -- Compute how many messages we still need to load.
-          deficit = lift2 (\msgs dem -> dem - Array.length msgs) linearized demand
+          deficit = lift2 (\msgs dem -> dem - Array.length msgs) nd_messages demand
+
+        subscribeDyn_ (\d -> Console.log $ "Demand: " <> (show d)) demand
+
         latestPageRequest <-
           asyncRequestMaybe do
             d <- deficit
@@ -254,7 +264,7 @@ loadMessageLoop si rId demand init_page updates =
                     $ ( getEventsUpto si rId tk
                           <#> \res ->
                               { events: res.chunk
-                              , start: if Array.null res.chunk then Nothing else res.from
+                              , start: if Array.null res.chunk then Nothing else res.to
                               }
                       )
               _ -> pure Nothing
@@ -262,7 +272,7 @@ loadMessageLoop si rId demand init_page updates =
           new_pages' = affSuccesses latestPageRequest
         pure
           $ Tuple new_pages'
-              { messages: linearized
+              { messages: nd_messages
               , loading:
                 latestPageRequest
                   <#> ( case _ of
@@ -277,8 +287,8 @@ mkRoomFeed ::
   MonadFRP m =>
   SessionInfo ->
   RoomId ->
-  RoomUpdate -> 
-  Event (RoomUpdate) -> 
+  RoomUpdate ->
+  Event (RoomUpdate) ->
   CleanupT Effect (JoinedRoom m)
 mkRoomFeed si rId ru rus = do
   let

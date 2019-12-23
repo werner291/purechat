@@ -11,7 +11,7 @@ import Data.Set (Set)
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
 import Global (encodeURIComponent)
-import Purechat.Types (MatrixEvent, MatrixRoomEvent, PrevBatchToken(..), RoomId(..), SessionInfo, UserId, decodeRoomEvent, unRoomId, unUserId)
+import Purechat.Types (MatrixEvent, MatrixRoomEvent, PrevBatchToken(..), RoomId(..), SessionInfo, UserId, decodeRoomEvent, unPrevBatchToken, unRoomId, unUserId)
 
 tryEncodeUriComponent :: String -> Aff String
 tryEncodeUriComponent inp = case encodeURIComponent inp of
@@ -147,7 +147,7 @@ getEventsUpto :: SessionInfo -> RoomId -> PrevBatchToken -> Aff { from :: Maybe 
                                                                 , state :: Array (MatrixEvent MatrixRoomEvent) }
 getEventsUpto si rId upto = do 
     encRid <- tryEncodeUriComponent $ unRoomId rId
-    res <- getJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <>"/messages")
+    res <- getJsonAuthed si ("/_matrix/client/r0/rooms/" <> encRid <>"/messages?from="<>(unPrevBatchToken upto)<>"&dir=b")
     json <- responseOkWithBody res
 
     let 

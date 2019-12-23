@@ -108,6 +108,9 @@ decodeRoomEvent json = do
 newtype PrevBatchToken
   = PrevBatchToken String
 
+instance showBatchToken :: Show PrevBatchToken where
+  show (PrevBatchToken t) = "Batch token " <> t
+
 unPrevBatchToken :: PrevBatchToken -> String
 unPrevBatchToken (PrevBatchToken t) = t
 
