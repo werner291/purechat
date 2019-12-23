@@ -14,12 +14,15 @@ import Effect.Aff (Aff, try)
 import Effect.Class (liftEffect)
 import Effect.Exception (Error)
 import Effect.Ref as Ref
+import Effect.Timer (clearInterval, setInterval)
 import Foreign.Object as Object
 import Specular.Dom.Browser (Node, TagName, Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr', el)
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, dynamic, filterMapEvent, fixFRP, foldDynMaybe, holdWeakDyn, never, sampleAt, switch, unWeakDynamic, newDynamic, newEvent, subscribeEvent_)
+import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, current, dynamic, filterMapEvent, fixFRP, foldDyn, foldDynMaybe, holdWeakDyn, never, newDynamic, newEvent, sampleAt, subscribeEvent_, switch, unWeakDynamic)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
+import Specular.Ref (readRef)
+import Specular.Ref as SRef
 
 -- | Fires an event with the current value of the behavior 
 -- | whenever an event from the given event stream occurs.
@@ -156,5 +159,40 @@ fanOutM evt mkConsumer = do
     pure unit
   pure (map (map _.output) st_dyn.dynamic)
 
+-- | Whenever the `Dynamic (RequestState a)` changes to `Loaded x`, emit `x` as an event.
 affSuccesses :: forall a. Dynamic (RequestState a) -> Event a
 affSuccesses inpt = filterMapEvent fromLoaded $ changed inpt
+
+withPast :: forall a b m. MonadFRP m => (a -> a -> b) -> a -> Event a -> m (Event b)
+withPast f init updt = do
+  past :: Dynamic (Maybe a) <- holdPast updt
+  let 
+    pastWithDefault :: Dynamic a
+    pastWithDefault = fromMaybe init <$> past
+  pure $ sampleAt (updt <#> flip f) (current pastWithDefault)
+
+-- | Creates a Dynamic that keeps track of the last event received strictly in the past, if any.
+holdPast :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
+holdPast updt = do
+  memory :: Dynamic (Tuple (Maybe a) (Maybe a)) <- 
+    foldDyn (\newVal (Tuple a b) -> Tuple b (Just newVal)) (Tuple Nothing Nothing) updt
+  pure $ memory <#> \(Tuple a b) -> a
+
+-- | Fires an event every x milliseconds.
+-- | First occurs after set interval.
+clockMilliseconds :: forall m. MonadFRP m => Int -> m (Event Int)
+clockMilliseconds interval = do
+  clockValue <- SRef.new 0
+  ev <- newEvent
+  ivalId <- liftEffect $ setInterval interval do
+    c <- readRef clockValue
+    ev.fire c
+  onCleanup (clearInterval ivalId)
+  pure ev.event
+
+-- | subscribeEvent that returns the effect output as an event.
+subscribeEvent :: forall a m. MonadFRP m => Effect a -> Event Unit -> m (Event a)
+subscribeEvent handler event = do
+  ev <- newEvent -- FIXME Would be nice if the unsubscribe functionality was exposed, this might leave some garbage.
+  subscribeEvent_ (const $ handler >>= ev.fire) event
+  pure ev.event
