@@ -154,7 +154,7 @@ messageListView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoo
 messageListView si rId room =
   fixFRP_ \requestMore -> do
     let
-      infscrollStep = 10
+      infscrollStep = 20
       init_load = 25
 
     demand <- foldDyn (\a b -> b + infscrollStep) init_load requestMore
