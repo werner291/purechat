@@ -4,16 +4,20 @@ import Prelude
 
 import API.Core (sendMessage)
 import API.Rooms (leaveRoom)
-import CustomCombinators (affButtonLoopSimplified, clockMilliseconds, dynamicMaybe_, elClass, elClass', holdPast, pulseSpinner, subscribeEvent, withPast)
+import Control.Apply (lift2)
+import Control.Monad.Cleanup (onCleanup)
+import CustomCombinators (affButtonLoopSimplified, dynamicMaybe_, elClass, elClass', pulseSpinner, subscribeEvent, withPast)
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Map as Map
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Effect.Timer (setTimeout)
 import Foreign.Object as Object
+import Prim.Row (class Union)
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
 import Purechat.ServerFeed (RoomMeta, JoinedRoom)
@@ -23,12 +27,13 @@ import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, filterEvent, filterMapEvent, fixFRP, foldDyn, holdDyn, readDynamic, sampleAt, subscribeEvent_, tagDyn)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic_, filterEvent, filterMapEvent, fixFRP, foldDyn, holdDyn, newEvent, readDynamic, sampleAt, subscribeEvent_, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
-import Specular.Ref (newRef)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element (scrollHeight, scrollTop, setScrollTop)
+import Web.DOM.MutationObserver (MutationObserverInitFields, disconnect, mutationObserver, observe)
+import Web.DOM.MutationRecord (MutationRecord)
 import Web.HTML.HTMLElement (offsetHeight)
 
 textareaOnChangeWithReset :: forall m. MonadWidget m => Event Unit -> m (Dynamic String)
@@ -145,11 +150,13 @@ roomTopBar si rId meta = do
   -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
 
-
-scrollHeightSample :: forall m. MonadFRP m => Node -> m (Event Number)
-scrollHeightSample n = do
-  c :: Event Int <- clockMilliseconds 200
-  subscribeEvent (scrollHeight (unsafeCoerce n)) (const unit <$> c)
+mutations :: ∀ m r rx. MonadFRP m => Union r rx MutationObserverInitFields => Node -> Record r -> m (Event (Array MutationRecord))
+mutations n options = do
+  ev <- newEvent
+  mo <- liftEffect $ mutationObserver $ \r mo -> ev.fire r
+  liftEffect$ observe (unsafeCoerce n) { childList : true } mo
+  onCleanup $ disconnect mo
+  pure ev.event
 
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
@@ -190,17 +197,27 @@ joinedRoomView si rId room = do
         h <- scrollHeight $ unsafeCoerce msgListNode
         setScrollTop h (unsafeCoerce msgListNode)
 
-    -- Not the most elegant, but polling works, I guess?
-    msgListHeightSamples <- scrollHeightSample msgListNode
-    pastHeightD <- holdPast msgListHeightSamples
-    pastScrollD <- holdPast (changed scrl)
+    listMutations <- mutations msgListNode {childList:true} 
 
-    flip subscribeEvent_ msgListHeightSamples \newHeight -> do
+    listHeightUpdates <- subscribeEvent (\_ -> scrollHeight (unsafeCoerce msgListNode)) listMutations
+
+    let listSnapshots = sampleAt ((\h -> (\msg -> {
+        listHeight: h,
+        fstId: Array.head msg <#> _.event_id,
+        lstId: Array.last msg <#> _.event_id
+      })) <$> listHeightUpdates) (current msgs)
+
+    snapshotPairs <- withPast (lift2 Tuple) Nothing $ Just <$> listSnapshots
+    flip subscribeEvent_ (filterMapEvent identity snapshotPairs) $ \(Tuple pst new) -> do
       scrlAt <- readDynamic scrl
-      pastScrlAt <- fromMaybe 0.0 <$> readDynamic pastScrollD
       listVisibleHeight <- offsetHeight (unsafeCoerce msgListNode)
-      pastHeight <- fromMaybe 0.0 <$> readDynamic pastHeightD
-      when (newHeight > pastHeight && scrlAt + listVisibleHeight == pastHeight) scrollToBottom
+
+      when (not (pst.lstId == new.lstId) && scrlAt + listVisibleHeight == pst.listHeight) do
+        scrollToBottom
+        Console.log "Scroll bottom."
+      when (not $ pst.fstId == new.fstId) do
+        setScrollTop (scrlAt - pst.listHeight + new.listHeight) (unsafeCoerce msgListNode)
+        Console.log "Scroll delta."
 
     _ <- liftEffect $ setTimeout 100 scrollToBottom
 

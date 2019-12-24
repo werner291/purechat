@@ -191,8 +191,8 @@ clockMilliseconds interval = do
   pure ev.event
 
 -- | subscribeEvent that returns the effect output as an event.
-subscribeEvent :: forall a m. MonadFRP m => Effect a -> Event Unit -> m (Event a)
+subscribeEvent :: forall a b m. MonadFRP m => (a -> Effect b) -> Event a -> m (Event b)
 subscribeEvent handler event = do
   ev <- newEvent -- FIXME Would be nice if the unsubscribe functionality was exposed, this might leave some garbage.
-  subscribeEvent_ (const $ handler >>= ev.fire) event
+  subscribeEvent_ (\a -> handler a >>= ev.fire) event
   pure ev.event
