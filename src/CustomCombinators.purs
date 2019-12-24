@@ -16,6 +16,7 @@ import Effect.Exception (Error)
 import Effect.Ref as Ref
 import Effect.Timer (clearInterval, setInterval)
 import Foreign.Object as Object
+import Prim.Row (class Union)
 import Specular.Dom.Browser (Node, TagName, Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr', el)
 import Specular.Dom.Widget (class MonadWidget)
@@ -23,6 +24,9 @@ import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, chan
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
 import Specular.Ref (readRef)
 import Specular.Ref as SRef
+import Unsafe.Coerce (unsafeCoerce)
+import Web.DOM.MutationObserver (MutationObserverInitFields, disconnect, mutationObserver, observe)
+import Web.DOM.MutationRecord (MutationRecord)
 
 -- | Fires an event with the current value of the behavior 
 -- | whenever an event from the given event stream occurs.
@@ -196,3 +200,33 @@ subscribeEvent handler event = do
   ev <- newEvent -- FIXME Would be nice if the unsubscribe functionality was exposed, this might leave some garbage.
   subscribeEvent_ (\a -> handler a >>= ev.fire) event
   pure ev.event
+
+-- | Returns an event that fires every time the list of this element's children changes.
+childListMutations :: ∀ m r rx. MonadFRP m => Union r rx MutationObserverInitFields => Node -> Record r -> m (Event (Array MutationRecord))
+childListMutations n options = do
+  ev <- newEvent -- FIXME There has got to be a way to clean it up?
+  mo <- liftEffect $ mutationObserver $ \r mo -> ev.fire r
+  liftEffect$ observe (unsafeCoerce n) { childList : true } mo
+  onCleanup $ disconnect mo
+  pure ev.event
+
+-- | Different formulation of `sampleAt` that takes a function and an Event rather than an Event of functions.
+sampleFn :: forall a b c. (a -> b -> c) -> Event a -> Behavior b -> Event c
+sampleFn f e b = sampleAt (f <$> e) b
+
+-- | Only let events through when the behavior is true.
+gateEventBy :: forall a. Event a -> Behavior Boolean -> Event a
+gateEventBy ev gate = filterMapEvent identity $ sampleFn (\evInst gt -> if gt then Just evInst else Nothing) ev gate
+
+-- Removes subsequent duplicate events. Does not guarantee uniqueness.
+deduplicate :: forall a m. Eq a => MonadFRP m => Event a -> m (Event a)
+deduplicate ev = do
+  past <- holdPast ev
+  let 
+    maybefy new (Just p) | p == new = Nothing
+    maybefy new _ = Just new
+  pure $ filterMapEvent identity $ sampleFn maybefy ev (current past)
+
+-- Fire an event whenever a given dynamic exactly arrives at a target value.
+dynamicHitsTarget :: forall a m. MonadFRP m => Eq a => Dynamic a -> a -> m (Event Unit)
+dynamicHitsTarget d t = filterMapEvent (\s -> if s == t then Just unit else Nothing) <$> deduplicate (changed d)
