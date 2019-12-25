@@ -33,6 +33,11 @@ body {
     flex-grow: 1;
 }
 
+p.error {
+    word-break: break-word; color: rgb(59, 0, 0);
+    font-size: small;
+}
+
 .profile-bar i {
     font-size: 5mm;
     margin: 2mm;
@@ -42,6 +47,21 @@ div.main-view {
     flex-grow: 1;
     padding: 2mm;
     background-color: rgb(240, 240, 255);
+}
+
+div.not-following-warning-wrapper {
+    position: relative;
+    height: 0px;
+}
+
+div.not-following-warning {
+    position: absolute;
+    bottom: 0px;
+    left: 0px;
+    right: 0px;
+    background: white;
+    padding: 2mm;
+    border: solid gray 1px;
 }
 
 .sidebar {
@@ -126,7 +146,6 @@ button {
     font-size: small;
     font-weight: 500;
     margin: 1mm;
-    word-break: break-word;
 }
 
 .message-wrapper img.avatar {

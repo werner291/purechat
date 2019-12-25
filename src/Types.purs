@@ -3,28 +3,32 @@ module Purechat.Types where
 import Prelude
 
 import Affjax (URL)
-import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional, (.:))
+import Control.Monad.Error.Class (throwError)
+import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional, getFieldOptional', stringify, (.:))
 import Data.Either (Either(..))
 import Data.Maybe (Maybe, fromMaybe)
 import Data.Newtype (class Newtype, wrap)
 import Data.Time.Duration (Milliseconds(..))
 
-newtype EventId = MkEventId String
+newtype EventId
+  = MkEventId String
 
 derive instance newtypeEventId :: Newtype EventId _
+
 derive newtype instance eqEventId :: Eq EventId
+
 derive newtype instance ordEventId :: Ord EventId
 
 -- Combination of milliseconds since unix epoch and event id.
-data TimeEventId = TimeEventId Milliseconds EventId
+data TimeEventId
+  = TimeEventId Milliseconds EventId
 
 derive instance eqTimeEventId :: Eq TimeEventId
 
 instance ordTimeEventId :: Ord TimeEventId where
-  compare (TimeEventId ta ea) (TimeEventId tb eb) = 
-    case compare ta tb of
-      EQ -> compare ea eb
-      c -> c
+  compare (TimeEventId ta ea) (TimeEventId tb eb) = case compare ta tb of
+    EQ -> compare ea eb
+    c -> c
 
 type MatrixEvent a
   = { event_id :: EventId
@@ -54,15 +58,25 @@ instance decodeRoomMembership :: DecodeJson RoomMembership where
       "invite" -> Right Invite
       _ -> Left $ "Unknown join status: " <> t
 
--- data GlobalEventType = MatrixRoomEvent MatrixRoomEvent
--- instance eventTypeStr :: MatrixEventType GlobalEventType where
---   eventTypeString (MatrixRoomEvent e) = eventTypeString e
+data MessageType
+  = Text
+  -- | Emote
+  -- | Notice
+  -- | Image URL
+  -- | File URL
+  -- | Audio
+  -- | Location String
+  -- | Video URL
+  | Unknown String
+
 data MatrixRoomEvent
-  = Message { body :: String }
+  = Message { body :: String, msgtype :: MessageType }
   | Membership { profile :: UserProfile, membership :: RoomMembership, user_id :: UserId }
   | RoomName String
   | RoomTopic String
   | RoomCanonicalAlias String
+  | RoomAvatar URL
+  | RoomPinnedEvents (Array EventId)
 
 -- | Decode a Json object as a room event.
 -- | Note that, if the event type is unrecognized or the "content" field of the event
@@ -81,29 +95,36 @@ decodeRoomEvent json = do
       "m.room.message" -> do
         content <- getField o "content"
         body <- getField content "body"
-        pure { origin_server_ts, event_id, sender, content: (Right (Message { body })) }
+        msg_type_txt <- getField content "msgtype"
+        case msg_type_txt of
+          "m.text" -> pure $ Message { body, msgtype: Text }
+          _ -> pure $ Message { body, msgtype: Unknown msg_type_txt}
+        
       "m.room.member" -> do
         content <- getField o "content"
         displayname <- getFieldOptional content "displayname"
-        avatar_url <- getFieldOptional content "avatar_url"
+        avatar_url <- getFieldOptional' content "avatar_url"
         membership <- getField content "membership"
-        pure { origin_server_ts, event_id, sender, content: (Right (Membership { profile: { displayname, avatar_url }, membership, user_id: UserId state_key })) }
+        pure $ Membership { profile: { displayname, avatar_url }, membership, user_id: UserId state_key }
       "m.room.name" -> do
         content <- getField o "content"
         name <- getField content "name"
-        pure { origin_server_ts, event_id, sender, content: (Right $ RoomName name) }
+        pure $ RoomName name
       "m.room.topic" -> do
         content <- getField o "content"
         topic <- getField content "topic"
-        pure { origin_server_ts, event_id, sender, content: (Right $ RoomTopic topic) }
+        pure $ RoomTopic topic
       "m.room.canonical_alias" -> do
         content <- getField o "content"
         ca <- getField content "alias"
-        pure { origin_server_ts,  event_id, sender, content: (Right $ RoomCanonicalAlias ca) }
-      _ -> pure { origin_server_ts, event_id, sender, content: (Left evtType) }
+        pure $ RoomCanonicalAlias ca
+      "m.room.avatar" -> do
+        url <- getField o "url"
+        pure $ RoomAvatar url
+      _ -> throwError $ "Unknown event type " <> evtType
   case res of
-    Left decodeErr -> pure { origin_server_ts, event_id, sender, content: (Left decodeErr) }
-    Right evt -> Right evt
+    Left decodeErr -> pure { origin_server_ts, event_id, sender, content: (Left $ decodeErr <> (stringify json)) }
+    Right evt -> Right { origin_server_ts, event_id, sender, content: Right evt }
 
 newtype PrevBatchToken
   = PrevBatchToken String
@@ -125,7 +146,6 @@ unPrevBatchToken (PrevBatchToken t) = t
 --     , from :: PrevBatchToken -- The timestamp upto which events are incorporated into the RoomData
 --     , events_requested :: Boolean -- Whether the backend is currently fetching more events
 --     }
-
 type SessionInfo
   = { token :: LoginToken, homeserver :: String, user_id :: UserId }
 

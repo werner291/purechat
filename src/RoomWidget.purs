@@ -4,29 +4,26 @@ import Prelude
 
 import API.Core (sendMessage)
 import API.Rooms (leaveRoom)
-import Control.Apply (lift2)
-import Control.Monad.Cleanup (onCleanup)
-import CustomCombinators (affButtonLoopSimplified, childListMutations, dynamicHitsTarget, dynamicMaybe_, elClass, elClass', gateEventBy, pulseSpinner, sampleFn, subscribeEvent, withPast)
+import Control.Apply (lift2, lift3)
+import CustomCombinators (affButtonLoopSimplified, childListMutations, clockMilliseconds, dynamicHitsTarget, dynamicMaybe_, elClass, elClass', elemOnClick, filterByBool, gateEventBy, holdPast, pulseSpinner, sampleFn, subscribeEvent, withPastSkipFirst)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Map as Map
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
-import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
-import Effect.Timer (clearTimeout, setTimeout)
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
 import Purechat.ServerFeed (RoomMeta, JoinedRoom)
 import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
-import Specular.Dom.Builder.Class (domEventWithSample, el', elAttr, text)
+import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
-import Specular.FRP (class MonadFRP, Dynamic, Event, current, dynamic_, filterMapEvent, fixFRP, fixFRP_, foldDyn, holdDyn, subscribeEvent_, tagDyn)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, current, dynamic, dynamic_, filterJustEvent, fixFRP, fixFRP_, foldDyn, holdDyn, leftmost, never, subscribeDyn_, subscribeEvent_, switch, tagDyn)
 import Specular.FRP.Async (asyncRequestMaybe)
 import Specular.FRP.List (dynamicList_)
 import Unsafe.Coerce (unsafeCoerce)
@@ -76,9 +73,11 @@ viewEvent si drd evt =
               Right (Membership { profile, membership: Join }) -> text $ sender_displayname <> " joined the room."
               Right (Membership { profile, membership: Invite }) -> text $ sender_displayname <> " has been invited to the room."
               Right (Membership { profile, membership: Leave }) -> text $ sender_displayname <> " left room."
+              Right (RoomAvatar av) -> text $ sender_displayname <> " changed the room's avatar."
               Right (RoomName n) -> text $ sender_displayname <> " set the room's name to " <> n
               Right (RoomTopic n) -> text $ sender_displayname <> " set the room's topic to " <> n
               Right (RoomCanonicalAlias n) -> text $ sender_displayname <> " set the room's canonical alias to " <> n
+              Right (RoomPinnedEvents pins) -> text $ sender_displayname <> " changed the pinned messages."
 
 leaveButton :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
 leaveButton si rId = do
@@ -108,46 +107,67 @@ roomTopBar si rId meta = do
   -- Show the room name. Possibly in the future, add 
   -- possibility of clicking to enable typing in a room ID
   elClass "div" "room-meta" do
-    elClass "h2" "room-name" $ dynamic_ $ meta <#> \rs -> (text rs.display_name)
+    dynamic_ $ meta <#> \rs -> do
+      showAvatarOrDefault si rs.avatar_url
+      elClass "h2" "room-name" $  (text rs.display_name)
     leaveButton si rId
   -- A simple horizontal line separating the meta-area from the content.
   elClass "hr" "roomname-content-set" (pure unit)
 
+data Triple a b c = Triple a b c
+
 -- | Implements the auto-scrolling logic that follows
 -- | the addition of messages both at the top and the bottom of the message view.
-autoScroll :: forall m. MonadFRP m => Node -> Dynamic (Array (MatrixEvent MatrixRoomEvent)) -> m Unit
-autoScroll msgListNode msgs = do
+autoScroll :: forall m. MonadFRP m => Node -> Event Unit -> Dynamic (Array (MatrixEvent MatrixRoomEvent)) -> m { following :: Dynamic Boolean }
+autoScroll msgListNode reset msgs = do
 
   listMutations <- childListMutations msgListNode { childList: true }
-  listHeightUpdates <- subscribeEvent (\_ -> scrollHeight (unsafeCoerce msgListNode)) listMutations
+  
+  sizePollClock <- clockMilliseconds 500
+
+  listHeight :: Dynamic Number <- do
+    sH <- liftEffect $ scrollHeight (unsafeCoerce msgListNode)
+    holdDyn sH =<<  subscribeEvent (\_ -> scrollHeight (unsafeCoerce msgListNode)) (leftmost [listMutations <#> const unit, sizePollClock <#> const unit])
+  
+  listVisibleHeight :: Dynamic Number <- do
+    -- TODO Maybe listen to resize events?
+    oH <- liftEffect $ offsetHeight (unsafeCoerce msgListNode)
+    
+    holdDyn oH =<< subscribeEvent (\_ -> offsetHeight (unsafeCoerce msgListNode)) (leftmost [listMutations <#> const unit, sizePollClock <#> const unit])
+  
+  scrl :: Dynamic Number <- scrollTopDyn msgListNode
+    
   let
-    listSnapshots =
-      sampleFn
-        ( \h msg ->
+    listSnapshot = lift2 ( \h msg ->
             { listHeight: h
             , fstId: Array.head msg <#> _.event_id
             , lstId: Array.last msg <#> _.event_id
             }
-        )
-        listHeightUpdates
-        (current msgs)
+        ) listHeight msgs
 
-    scrollToBottom :: Effect Unit
-    scrollToBottom = do
-      h <- scrollHeight $ unsafeCoerce msgListNode
-      setScrollTop h (unsafeCoerce msgListNode)
+    isAtBottom = lift3 (\s h lh -> s + h >= lh) scrl listVisibleHeight listHeight
 
-  snapshotPairs <- withPast (lift2 Tuple) Nothing $ Just <$> listSnapshots
-  flip subscribeEvent_ (filterMapEvent identity snapshotPairs)
-    $ \(Tuple pst new) -> do
-        scrlAt <- scrollTop (unsafeCoerce msgListNode)
-        listVisibleHeight <- offsetHeight (unsafeCoerce msgListNode)
-        when (not (pst.lstId == new.lstId) && scrlAt + listVisibleHeight == pst.listHeight) do
-          scrollToBottom
-        when (not $ pst.fstId == new.fstId) do
-          setScrollTop (scrlAt - pst.listHeight + new.listHeight) (unsafeCoerce msgListNode)
-  to <- liftEffect $ setTimeout 100 scrollToBottom
-  onCleanup $ clearTimeout to
+    -- scrollToBottom :: Effect Unit
+    -- scrollToBottom = do
+    --   h <- scrollHeight $ unsafeCoerce msgListNode
+    --   setScrollTop h (unsafeCoerce msgListNode)
+
+  
+  subscribeDyn_ (unsafeCoerce >>> Console.log) $ lift3 Triple scrl listVisibleHeight listHeight
+
+  wasAtBottom :: Dynamic Boolean <- map (fromMaybe false) <$> holdPast (changed isAtBottom)
+
+  lastChanged <- filterByBool <$> withPastSkipFirst (\pst new -> pst.lstId /= new.lstId) (changed listSnapshot)
+  let 
+    scrollToBottom :: Event Unit 
+    scrollToBottom = gateEventBy lastChanged $ current wasAtBottom
+
+  firstChanged <- filterJustEvent <$> withPastSkipFirst (\pst new -> if pst.fstId /= new.fstId then (Just (new.listHeight - pst.listHeight)) else Nothing) (changed listSnapshot)
+  let scrollKeepRelative = sampleFn (+) firstChanged (current scrl)
+
+  subscribeEvent_ (flip setScrollTop (unsafeCoerce msgListNode)) $ leftmost [tagDyn listHeight reset, scrollToBottom <#> const 0.0, scrollKeepRelative]
+
+  pure {following : isAtBottom}
 
 -- | Component that displays a list of messages, allowing for lazy loading and updates.
 messageListView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
@@ -158,7 +178,6 @@ messageListView si rId room =
       init_load = 25
 
     demand <- foldDyn (\a b -> b + infscrollStep) init_load requestMore
-    subscribeEvent_ (\_ -> Console.log "Requesting more!") requestMore
     msgs <- room.messages $ demand
     -- List of room events. Keep reference to the node since we need it for some scrolling magic.
     (Tuple msgListNode _) <-
@@ -167,7 +186,13 @@ messageListView si rId room =
         $ \devt ->
             dynamic_ $ devt <#> (viewEvent si room.meta)
     -- If the user is at the bottom of the page and it expands, take the user to the new bottom.
-    autoScroll msgListNode msgs
+    
+    fixFRP_ \reset -> do
+      {following} <- autoScroll msgListNode reset msgs
+      map switch <$> dynamic $ following <#> \f -> case f of
+        false -> elemOnClick "div" (Object.singleton "class" "not-following-warning-wrapper") $ elClass "div" "not-following-warning"  $ text "Reading earlier messages. Click to return to present."
+        true -> pure never
+
     -- Keep track of how far the user has scrolled.
     scrl <- scrollTopDyn msgListNode
     -- Event that fires whenevr the user has hit the top of the page.
@@ -178,7 +203,7 @@ messageListView si rId room =
 -- A widget showing the contents of a room that the user is currently participating in.
 joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
 joinedRoomView si rId room = do
-  liftEffect $ Console.log "Room."
+
   roomTopBar si rId room.meta
   -- Display a loading spinner at the top of the page whenever new messages are being loaded.
   dynamic_ $ room.loadingMessages <#> \l -> when l pulseSpinner

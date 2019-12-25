@@ -2,6 +2,7 @@ module CustomCombinators where
 
 import Prelude
 
+import Control.Apply (lift2)
 import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
 import Data.Either (Either(..), hush)
 import Data.Foldable (class Foldable, foldM)
@@ -175,6 +176,9 @@ withPast f init updt = do
     pastWithDefault = fromMaybe init <$> past
   pure $ sampleAt (updt <#> flip f) (current pastWithDefault)
 
+withPastSkipFirst :: forall a b m. MonadFRP m => (a -> a -> b) -> Event a -> m (Event b)
+withPastSkipFirst f updt = filterMapEvent identity <$> withPast (lift2 f) Nothing (Just <$> updt)
+
 -- | Creates a Dynamic that keeps track of the last event received strictly in the past, if any.
 holdPast :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
 holdPast updt = do
@@ -230,3 +234,6 @@ deduplicate ev = do
 -- Fire an event whenever a given dynamic exactly arrives at a target value.
 dynamicHitsTarget :: forall a m. MonadFRP m => Eq a => Dynamic a -> a -> m (Event Unit)
 dynamicHitsTarget d t = filterMapEvent (\s -> if s == t then Just unit else Nothing) <$> deduplicate (changed d)
+
+filterByBool :: Event Boolean -> Event Unit 
+filterByBool = filterMapEvent $ if _ then Just unit else Nothing

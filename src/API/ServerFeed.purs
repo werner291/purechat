@@ -1,7 +1,9 @@
 module Purechat.ServerFeed (serverState, KnownServerState, JoinedRoom, RoomMeta) where
 
 import Prelude
+
 import API.Rooms (getEventsUpto)
+import Affjax (URL)
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
@@ -30,8 +32,8 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object (Object)
-import Purechat.Types (LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, TimeEventId, UserId, UserProfile, decodeRoomEvent, getTimeId, unRoomId)
-import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_, subscribeEvent_)
+import Purechat.Types (EventId, LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, TimeEventId, UserId, UserProfile, decodeRoomEvent, getTimeId, unRoomId)
+import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, startAff)
 
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
@@ -43,11 +45,15 @@ updateRoomName rd = rd { display_name = roomNameFromData rd }
 
 foldEventIntoRoomState :: MatrixEvent MatrixRoomEvent -> RoomMeta -> RoomMeta
 foldEventIntoRoomState { content } st = case content of
+  Left _ -> st
+  Right (Message _) -> st
   Right (RoomName name) -> updateRoomName $ st { name = Just name }
   Right (RoomTopic topic) -> updateRoomName $ st { topic = Just topic }
   Right (RoomCanonicalAlias cs) -> updateRoomName $ st { canonical_alias = Just cs }
   Right (Membership m) -> updateRoomName $ st { members = Map.insert m.user_id m.profile st.members }
-  _ -> st
+  Right (RoomAvatar a) -> st { avatar_url = Just a }
+  Right (RoomPinnedEvents evts) -> st { pinned_events = evts }
+  -- _ -> st
 
 -- appendToTimeline :: MatrixEvent MatrixRoomEvent -> RoomData -> RoomData
 -- appendToTimeline ev rd = rd { timeline = Array.snoc rd.timeline ev }
@@ -59,6 +65,8 @@ type RoomMeta
     , members :: Map UserId UserProfile -- A Map of room participants and their profile (May end up splitting this up with lazy loading)
     , display_name :: String -- Cached version of `roomNameFromData`
     , name :: Maybe String -- Explicitly-set name of the room
+    , avatar_url :: Maybe URL
+    , pinned_events :: Array EventId
     }
 
 -- A bundle of Dynamics related to a given room.
@@ -188,6 +196,8 @@ initMeta rId =
   , members: Map.empty
   , display_name: unRoomId rId
   , name: Nothing
+  , avatar_url: Nothing
+  , pinned_events: []
   }
 
 succMaxKey :: forall v. Map Int v -> Int
