@@ -119,46 +119,49 @@ let additions =
 
 
 let upstream =
-      https://github.com/purescript/package-sets/releases/download/psc-0.13.3-20190920/packages.dhall sha256:53873cf2fc4a343a41f335ee47c1706ecf755ac7c5a336e8eb03ad23165dfd28
+      https://github.com/purescript/package-sets/releases/download/psc-0.13.6-20200127/packages.dhall sha256:53873cf2fc4a343a41f335ee47c1706ecf755ac7c5a336e8eb03ad23165dfd28
 
 let overrides = {=}
 
-let additions = {
-    affjax = {
-        dependencies = [
-            "aff",
-            "argonaut-core",
-            "arraybuffer-types",
-            "foreign",
-            "form-urlencoded",
-            "http-methods",
-            "integers",
-            "math",
-            "media-types",
-            "nullable",
-            "refs",
-            "unsafe-coerce",
-            "web-xhr"
-        ],
-        repo = "https://github.com/slamdata/purescript-affjax.git",
-        version = "v9.0.0"
-    },
-    specular = { dependencies =
-          [ "prelude", 
-            "aff", 
-            "random",
-            "record",
-            "unsafe-reference",
-            "avar",
-            "foreign-object",
-            "debug",
-            "generics-rep"
-          ]
-      , repo =
-          "https://github.com/restaumatic/purescript-specular.git"
-      , version =
-          "568343a6d1cea1eb47b4dbf7f9d7e85aab63a0e4"
+let additions =
+      { affjax =
+          { dependencies =
+              [ "aff"
+              , "argonaut-core"
+              , "arraybuffer-types"
+              , "foreign"
+              , "form-urlencoded"
+              , "http-methods"
+              , "integers"
+              , "math"
+              , "media-types"
+              , "nullable"
+              , "refs"
+              , "unsafe-coerce"
+              , "web-xhr"
+              ]
+          , repo =
+              "https://github.com/slamdata/purescript-affjax.git"
+          , version =
+              "v9.0.0"
+          }
+      , specular =
+          { dependencies =
+              [ "prelude"
+              , "aff"
+              , "random"
+              , "record"
+              , "unsafe-reference"
+              , "avar"
+              , "foreign-object"
+              , "debug"
+              , "generics-rep"
+              ]
+          , repo =
+              "https://github.com/restaumatic/purescript-specular.git"
+          , version =
+              "f0ef40dfc42364fbe417f45fc6598fc203af3c3a"
+          }
       }
-}
 
 in  upstream // overrides // additions

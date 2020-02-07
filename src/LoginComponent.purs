@@ -1,9 +1,10 @@
 module Purechat.LoginComponent where
 
 import Prelude
+
 import API.Core (tryLogin)
 import Control.Monad.Cleanup (class MonadCleanup)
-import CustomCombinators (affButtonLoopSimplified, pulseSpinner)
+import CustomCombinators (affButtonLoopSimplified, elClass, pulseSpinner)
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
 import Foreign.Object as O
@@ -25,7 +26,7 @@ type LoginCredentials
 
 loginForm :: forall m. MonadWidget m => m (Event SessionInfo)
 loginForm =
-  el "div"
+  elClass "div" "login-form"
     $ affButtonLoopSimplified
         { ready:
           \err -> do

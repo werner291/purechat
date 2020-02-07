@@ -11,5 +11,5 @@ let
   };
 
 in pkgs.mkShell {
-  buildInputs = [ easy-ps.purs easy-ps.spago easy-ps.spago2nix pkgs.nodePackages.parcel-bundler easy-ps.purty ];
+  buildInputs = [ easy-ps.purs easy-ps.spago pkgs.nodejs pkgs.nodePackages.parcel-bundler easy-ps.purty ];
 }
