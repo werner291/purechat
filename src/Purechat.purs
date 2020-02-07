@@ -86,7 +86,7 @@ interruptedEvent d =
 
 -- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> m Unit
-primaryView si =
+primaryView si = elClass "div" "main-container" $
   fixFRP_
     $ \(evt :: Event UserProfile) -> do
         { server_state, current_profile } <- modelStore si evt

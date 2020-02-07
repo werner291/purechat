@@ -30,12 +30,20 @@ loginForm =
     $ affButtonLoopSimplified
         { ready:
           \err -> do
-            username <- textInputOnInput "" mempty
-            el_ "br"
-            password <- textInputOnInput "" (O.singleton "type" "password")
-            el_ "br"
-            homeserver <- textInputOnInput "https://matrix.org" mempty
-            tryLoginBtn <- buttonOnClick (pure mempty) (text " Login")
+            username <- el "label" do
+              elClass "span" "label-text" $ text "Username"
+              textInputOnInput "" mempty
+            
+            password <- el "label" do
+              elClass "span" "label-text" $ text "Password"
+              textInputOnInput "" (O.singleton "type" "password")
+            
+            homeserver <- el "label" do
+              elClass "span" "label-text" $ text "Homeserver"
+              textInputOnInput "https://matrix.org" mempty
+
+            tryLoginBtn <- buttonOnClick (pure mempty) (text "Log in")
+
             let
               combined :: Dynamic LoginCredentials
               combined = do
