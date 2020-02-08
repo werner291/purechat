@@ -2,18 +2,19 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
 
-import CustomCombinators (RemoteResourceView, bridgeEventOverMaybe, elClass, elemOnClick, pulseSpinner, remoteLoadingView)
+import CustomCombinators (RemoteResourceView, elClass, elemOnClick, pulseSpinner, remoteLoadingView)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set as Set
 import Data.Tuple (Tuple(..))
+import Effect (Effect)
 import Foreign.Object as Object
 import Purechat.ServerFeed (KnownServerState, RoomMeta)
 import Purechat.Types (RoomId, mkRoomId, unRoomId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
-import Specular.FRP (Dynamic, Event, dynamic, dynamic_, leftmost, never, switch)
+import Specular.FRP (Dynamic, Event, dynamic, dynamic_, leftmost, never, subscribeEvent_, switch)
 import Specular.FRP.List (dynamicList)
 
 searchBar :: forall m. MonadWidget m => m (Event String)
@@ -28,10 +29,13 @@ searchBar = do
 
 -- A widget showing a short, compact list of all channels the user might currently be interested in.
 -- Returns an Event stream of room IDs
-channelDirectory :: forall m. MonadWidget m => Dynamic (RemoteResourceView (KnownServerState m)) -> m (Event RoomId)
-channelDirectory rkss = 
+channelDirectory :: forall env m.
+  MonadWidget m =>
+  { openRoom :: RoomId -> Effect Unit | env }
+  -> Dynamic (RemoteResourceView (KnownServerState m)) -> m Unit
+channelDirectory env rkss = 
   let 
-    loadedView :: KnownServerState m -> m (Event RoomId)
+    loadedView :: KnownServerState m -> m Unit
     loadedView st = elClass "div" "channel-directory" do
       directEnterName :: Event String <- searchBar
       let
@@ -70,7 +74,9 @@ channelDirectory rkss =
       pickedFromJoined <-
         (switch <<< map leftmost)
           <$> el "ul" (dynamicList (Map.toUnfoldable <$> st.joined_rooms) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))
-      
-      pure $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined, pickedFromInvite ]
-  in bridgeEventOverMaybe <$> remoteLoadingView rkss pulseSpinner loadedView
+
+      subscribeEvent_ env.openRoom $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined, pickedFromInvite ]
+
+      -- pure $ 
+  in const unit <$> remoteLoadingView rkss pulseSpinner loadedView
 

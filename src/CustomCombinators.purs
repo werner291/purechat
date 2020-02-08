@@ -57,6 +57,9 @@ remoteLoadingView d loadingView loadedView =
         RRLoaded a -> loadedView a <#> Just
         RRLoading -> loadingView <#> const Nothing
 
+remoteLoadingView_ :: forall a b m. MonadWidget m => Dynamic (RemoteResourceView a) -> m Unit -> (a -> m b) -> m Unit
+remoteLoadingView_ d loadingView loadedView = const unit <$> remoteLoadingView d loadingView loadedView
+
 toLoadedUpdates :: forall a m. MonadFRP m => Event a -> m (Dynamic (RemoteResourceView a))
 toLoadedUpdates updt =
   let
