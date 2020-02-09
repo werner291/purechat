@@ -3,63 +3,56 @@ module Purechat.Purechat (primaryView) where
 import Prelude
 
 import API.Profile (getProfile)
-import CustomCombinators (RemoteResourceView, bridgeEventOverMaybe, elClass, elemOnClick, pulseSpinner, remoteLoadingView, remoteLoadingView_, toLoadedUpdates)
+import CustomCombinators (RemoteResourceView, bridgeEventOverMaybe, dynamicMaybe_, elClass, elemOnClick, pulseSpinner, remoteLoadingView, remoteLoadingView_, toLoadedUpdates)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Effect (Effect)
+import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.ChannelDirectoryWidget (channelDirectory)
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.EditProfileWidget (editProfileWidget)
 import Purechat.ServerFeed (KnownServerState, serverState)
-import Purechat.Types (RoomId, SessionInfo, UserProfile, unUserId)
+import Purechat.Types (GlobalEnv, RoomId, SessionInfo, UserId, UserProfile, unUserId)
 import Purechat.Widgets.CreateRoomWidget (createRoomWidget)
+import Record as Record
 import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, dynamic, filterMapEvent, fixFRP_, foldDyn, leftmost, never, newDynamic, readDynamic, subscribeEvent_, switch)
+import Specular.FRP (class MonadFRP, Dynamic, Event, changed, dynamic, filterMapEvent, fixFRP_, leftmost, never, newDynamic, readDynamic, subscribeEvent_, switch)
 import Specular.FRP.Async (RequestState, asyncRequest, fromLoaded)
 
-type SidebarEnv = { session :: SessionInfo
-           , editProfile :: Effect Unit
-           , openRoom :: RoomId -> Effect Unit
-           , createRoom :: Effect Unit }
-
 profileBar ::
-  forall env m.
-  MonadWidget m => 
-  { session :: SessionInfo , editProfile :: Effect Unit | env } ->
-  UserProfile -> m { openProfile :: Event Unit }
+  forall m.
+  MonadWidget m =>
+  GlobalEnv ->
+  UserProfile -> m Unit
 profileBar env profile =
   elClass "div" "profile-bar" do
     showAvatarOrDefault env.session profile.avatar_url
     elClass "p" "username" $ text $ fromMaybe (unUserId env.session.user_id) profile.displayname
-    openContextMenu <- elemOnClick "span" Object.empty $ text "oo"
-    contextMenuIsOpen <- foldDyn (\_ isOpen -> not isOpen) false openContextMenu
+    -- openContextMenu <- elemOnClick "span" Object.empty $ text "oo"
+    -- contextMenuIsOpen <- foldDyn (\_ isOpen -> not isOpen) false openContextMenu
     openProfile :: Event Unit <- elemOnClick "i" (Object.singleton "class" "fas fa-cog") $ pure unit
-    pure { openProfile: never }
+    subscribeEvent_ (const env.editProfile) openProfile
+    logout :: Event Unit <- elemOnClick "i" (Object.singleton "class" "fas fa-sign-out-alt") $ pure unit
+    subscribeEvent_ (const env.logout) logout
 
 sidebar ::
   forall m.
   MonadWidget m =>
-  SidebarEnv ->
+  GlobalEnv ->
   Dynamic (RemoteResourceView UserProfile) ->
   Dynamic (RemoteResourceView (KnownServerState m)) ->
   m Unit
 sidebar env profile st =
   elClass "div" "sidebar" do
     remoteLoadingView_ profile pulseSpinner (profileBar env)
-    
     clicks <- buttonOnClick (pure Object.empty) $ text "Create room"
-    subscribeEvent_ (\_ -> env.createRoom) clicks 
-
-
+    subscribeEvent_ (\_ -> env.createRoom) clicks
     -- subscribeEvent_ (const ) =<< ()
-
     --     elClass "i" "fas fa-plus" $ pure unit
-    --     
-
     channelDirectory env st
 
 data RoomViewState
@@ -96,22 +89,48 @@ interruptedEvent d =
         Just a -> pure a
         Nothing -> pure never
 
+profileCard :: forall m. MonadWidget m => 
+  GlobalEnv
+   -> { userId :: UserId, profile :: Maybe UserProfile } 
+   -> m Unit
+profileCard env toShow =
+  elClass "div" "profile-card" do
+    Console.log "Yo!"
+    elClass "p" "username" $ text $ unUserId toShow.userId
+    case toShow.profile of
+      Just prof -> do
+        case prof.displayname of
+          Just dn -> elClass "p" "displayname" $ text $ "AKA:" <> dn
+          _ -> pure unit
+        showAvatarOrDefault env.session prof.avatar_url
+      _ -> pure unit
 
+    close <- buttonOnClick (pure Object.empty) (text "X")
+    subscribeEvent_ (const env.closeCurrentProfileCard) close
 
 -- The "primary" widget that is visible once the user is logged in .
-primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> m Unit
-primaryView si =
-  elClass "div" "main-container" $ fixFRP_ $ \(evt :: Event UserProfile) -> do
+primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> { logout :: Effect Unit } -> m Unit
+primaryView si env = do
+  currentRoomView <- newDynamic PickRoom
+  currentProfileCard <- newDynamic Nothing
+  let
+    inner_env :: GlobalEnv
+    inner_env =
+      Record.merge env
+        { createRoom: currentRoomView.set CreateRoom
+        , editProfile: currentRoomView.set EditProfile
+        , openRoom: \rId -> currentRoomView.set (ShowRoom rId)
+        , logout: env.logout
+        , session: si
+        , showProfile: \userId profile -> currentProfileCard.set (Just { userId, profile })
+        , closeCurrentProfileCard: currentProfileCard.set Nothing
+        }
+  dynamicMaybe_ currentProfileCard.dynamic (profileCard inner_env)
+  elClass "div" "main-container" $ fixFRP_
+    $ \(evt :: Event UserProfile) -> do
         { server_state, current_profile } <- modelStore si evt
         -- { channelPicked, createRoom, openProfile } <- 
-
-        currentRoomView <- newDynamic PickRoom
-
-        sidebar { createRoom : currentRoomView.set CreateRoom
-          , editProfile : currentRoomView.set EditProfile
-          , openRoom : \rId -> currentRoomView.set (ShowRoom rId)
-          , session : si } current_profile server_state
-          
+        sidebar inner_env current_profile server_state
         -- current_profile server_state
         -- TODO : Make some kind of multi-window view. Should be easy enough by
         --        just making multiple sub-components here...
@@ -136,7 +155,7 @@ primaryView si =
                           -- similar to how fanOutM works?
                           roomD <- readDynamic (Map.lookup rid <$> st.joined_rooms)
                           -- Yuck, the `pure` here should be a Dynamic that's dedicated to that room.
-                          roomView si rid (pure roomD)
+                          roomView inner_env rid (pure roomD)
                   pure NoOutput
                 PickRoom -> do
                   elClass "div" "no-room-selected" do

@@ -9,6 +9,7 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe, fromMaybe)
 import Data.Newtype (class Newtype, wrap)
 import Data.Time.Duration (Milliseconds(..))
+import Effect (Effect)
 
 newtype EventId
   = MkEventId String
@@ -102,7 +103,7 @@ decodeRoomEvent json = do
         
       "m.room.member" -> do
         content <- getField o "content"
-        displayname <- getFieldOptional content "displayname"
+        displayname <- getFieldOptional' content "displayname"
         avatar_url <- getFieldOptional' content "avatar_url"
         membership <- getField content "membership"
         pure $ Membership { profile: { displayname, avatar_url }, membership, user_id: UserId state_key }
@@ -214,3 +215,17 @@ type UserProfile
   = { displayname :: Maybe String
     , avatar_url :: Maybe URL
     }
+
+-----------------
+-- Environment --
+-----------------
+
+type GlobalEnv = {
+  showProfile :: UserId -> Maybe UserProfile -> Effect Unit,
+  session :: SessionInfo
+  , logout :: Effect Unit
+  , editProfile :: Effect Unit
+  , openRoom :: RoomId -> Effect Unit
+  , createRoom :: Effect Unit
+  , closeCurrentProfileCard :: Effect Unit
+}

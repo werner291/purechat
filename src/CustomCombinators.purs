@@ -114,7 +114,7 @@ affButtonLoopSimplified { ready, loading, success } =
         Loaded (Right a) -> success a >>= (const $ pure never)
 
 pulseSpinner :: forall m. MonadWidget m => m Unit
-pulseSpinner = el "div" $ elClass "i" "fas fa-spinner fa-pulse" $ pure unit
+pulseSpinner = elClass "i" "fas fa-spinner fa-pulse" $ pure unit
 
 holdDynLatestJust :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
 holdDynLatestJust updt = map unWeakDynamic $ holdWeakDyn updt

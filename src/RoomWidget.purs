@@ -17,7 +17,7 @@ import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
 import Purechat.ServerFeed (RoomMeta, JoinedRoom)
-import Purechat.Types (MatrixEvent, MatrixRoomEvent(..), RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
+import Purechat.Types (GlobalEnv, MatrixEvent, MatrixRoomEvent(..), RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
@@ -52,8 +52,8 @@ composeMessageWidget =
   in
     elClass "div" "message-form" $ fixFRP loop
 
-viewEvent :: forall m. MonadWidget m => SessionInfo -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
-viewEvent si drd evt =
+viewEvent :: forall m. MonadWidget m => GlobalEnv -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
+viewEvent env drd evt =
   elClass "div" "message-wrapper" $ dynamic_ $ drd
     <#> \rd -> do
         let
@@ -63,12 +63,15 @@ viewEvent si drd evt =
           sender_displayname = case sender_profile of
             Just { displayname: (Just n) } -> n
             _ -> unUserId evt.sender
-        showAvatarOrDefault si (sender_profile >>= (\p -> p.avatar_url))
+
+        showAvatarOrDefault env.session (sender_profile >>= (\p -> p.avatar_url))
+
         elClass "div" "msg"
           $ case evt.content of
               Left errMsg -> elClass "p" "error" $ text $ "Error while decoding message from " <> sender_displayname <> ": " <> errMsg
               Right (Message { body }) -> do
-                elClass "p" "username" $ text sender_displayname
+                (Tuple usernameNode _ ) <- elClass' "p" "username" $ text sender_displayname
+                subscribeEvent_  (\_ -> env.showProfile evt.sender sender_profile) =<< domEvent "click" usernameNode
                 elClass "p" "message" $ text body
               Right (Membership { profile, membership: Join }) -> text $ sender_displayname <> " joined the room."
               Right (Membership { profile, membership: Invite }) -> text $ sender_displayname <> " has been invited to the room."
@@ -170,8 +173,8 @@ autoScroll msgListNode reset msgs = do
   pure {following : isAtBottom}
 
 -- | Component that displays a list of messages, allowing for lazy loading and updates.
-messageListView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
-messageListView si rId room =
+messageListView :: forall m. MonadWidget m => GlobalEnv -> RoomId -> JoinedRoom m -> m Unit
+messageListView env rId room =
   fixFRP_ \requestMore -> do
     let
       infscrollStep = 20
@@ -184,7 +187,7 @@ messageListView si rId room =
       elClass' "div" "room-messages"
         $ dynamicList_ msgs
         $ \devt ->
-            dynamic_ $ devt <#> (viewEvent si room.meta)
+            dynamic_ $ devt <#> (viewEvent env room.meta)
     -- If the user is at the bottom of the page and it expands, take the user to the new bottom.
     
     fixFRP_ \reset -> do
@@ -201,16 +204,16 @@ messageListView si rId room =
     pure $ gateEventBy scrollHitZero (not <$> current room.loadingMessages)
 
 -- A widget showing the contents of a room that the user is currently participating in.
-joinedRoomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> JoinedRoom m -> m Unit
-joinedRoomView si rId room = do
+joinedRoomView :: forall m. MonadWidget m => GlobalEnv -> RoomId -> JoinedRoom m -> m Unit
+joinedRoomView env rId room = do
 
-  roomTopBar si rId room.meta
+  roomTopBar env.session rId room.meta
   -- Display a loading spinner at the top of the page whenever new messages are being loaded.
   dynamic_ $ room.loadingMessages <#> \l -> when l pulseSpinner
-  messageListView si rId room
+  messageListView env rId room
   -- Message composition widget, which will produce message events whenever "send" is clicked.
   msg <- composeMessageWidget
-  currentRequest <- holdDyn Nothing (map Just (sendMessage si rId <$> msg))
+  currentRequest <- holdDyn Nothing (map Just (sendMessage env.session rId <$> msg))
   result <- asyncRequestMaybe currentRequest
   pure unit
 
@@ -219,12 +222,12 @@ joinedRoomView si rId room = do
 -- join status. If the user is not in the room, they will be shown join/invite options instead.
 -- The room directory separate from the room view. Think of the directory as a "remote control"
 -- for this widget/ The room view widget can function independently from the directory.
-roomView :: forall m. MonadWidget m => SessionInfo -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
-roomView si rId mrd =
+roomView :: forall m. MonadWidget m => GlobalEnv -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
+roomView env rId mrd =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ])
     $ do
-        dynamicMaybe_ mrd (joinedRoomView si rId)
+        dynamicMaybe_ mrd (joinedRoomView env rId)
         dynamic_ $ mrd
           <#> case _ of
               Just _ -> pure unit
-              Nothing -> joinRoomView si rId
+              Nothing -> joinRoomView env.session rId

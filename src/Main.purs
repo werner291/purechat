@@ -1,6 +1,7 @@
 module Main where
 
 import Prelude
+
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
@@ -8,7 +9,7 @@ import Purechat.LoginComponent (loginForm)
 import Purechat.Purechat (primaryView)
 import Purechat.Types (SessionInfo)
 import Specular.Dom.Widget (class MonadWidget, runMainWidgetInBody)
-import Specular.FRP (class MonadFRP, Dynamic, dynamic, never, switch, Event)
+import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic, newEvent, switch)
 import Specular.FRP.Fix (fixFRP_)
 import StorageFRP (StoreStatus, localStorageJsonDynamic, storeStatusToMaybe)
 import Web.HTML (window)
@@ -34,8 +35,9 @@ loginThenMain =
           ( sess <#> case _ of
                   Nothing -> map (map Just) loginForm
                   Just s -> do
-                    primaryView s
-                    pure never
+                    evt <- newEvent
+                    primaryView s { logout : evt.fire Nothing }
+                    pure evt.event
           )
 
 main :: Effect Unit

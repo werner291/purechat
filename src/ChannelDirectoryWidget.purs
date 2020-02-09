@@ -36,8 +36,8 @@ channelDirectory :: forall env m.
 channelDirectory env rkss = 
   let 
     loadedView :: KnownServerState m -> m Unit
-    loadedView st = elClass "div" "channel-directory" do
-      directEnterName :: Event String <- searchBar
+    loadedView st = do
+      
       let
         clickableLi :: Tuple RoomId RoomMeta -> m (Event RoomId)
         clickableLi (Tuple rId {display_name}) = do
@@ -75,8 +75,13 @@ channelDirectory env rkss =
         (switch <<< map leftmost)
           <$> el "ul" (dynamicList (Map.toUnfoldable <$> st.joined_rooms) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))
 
-      subscribeEvent_ env.openRoom $ leftmost [ (map mkRoomId directEnterName), pickedFromJoined, pickedFromInvite ]
-
-      -- pure $ 
-  in const unit <$> remoteLoadingView rkss pulseSpinner loadedView
+      subscribeEvent_ env.openRoom $ leftmost [pickedFromJoined, pickedFromInvite ]
+  in do
+    directEnterName :: Event String <- searchBar
+    subscribeEvent_ env.openRoom (map mkRoomId directEnterName)
+    elClass "div" "channel-directory" do
+      const unit <$> remoteLoadingView rkss (do 
+        pulseSpinner
+        text "Loading Channels..."
+        ) loadedView
 

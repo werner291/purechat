@@ -15,6 +15,13 @@ body {
     right: 0;
     top: 0;
     bottom: 0;
+    animation-name: fadein;
+    animation-duration: 500ms;
+}
+
+@keyframes fadein {
+    from {opacity: 0.0;}
+    to {opacity: 1.0;}
 }
 
 .no-room-selected {
@@ -81,10 +88,28 @@ p.error {
     margin: 2mm;
 }
 
+div.profile-card {
+    z-index: 10;
+    position: fixed;
+    right: 3mm;
+    top: 3mm;
+    background: rgb(0, 0, 50);
+    padding: 5mm;
+    border-radius: 2mm;
+    color: white;
+    animation-name: fadein;
+    animation-duration: 500ms;
+}
+
+div.profile-card .avatar {
+    width: 15mm;
+    height: 15mm;
+}
+
 div.main-view {
     flex-grow: 1;
-    padding: 2mm;
-    background-color: rgba(255, 255, 255, 0.70);
+    padding: 2mm 3mm;
+    background-color: rgba(255, 255, 255, 0.80);
 }
 
 div.not-following-warning-wrapper {
@@ -94,18 +119,20 @@ div.not-following-warning-wrapper {
 
 div.not-following-warning {
     position: absolute;
-    bottom: 0px;
-    left: 0px;
-    right: 0px;
-    background: white;
+    bottom: 2mm;
+    left: 2mm;
+    right: 7mm;
+    background: rgb(255, 100, 100);
+    color: black;
     padding: 2mm;
-    border: solid gray 1px;
+    border-radius: 2mm;
+
 }
 
 .sidebar {
     display: flex;
     flex-direction: column;
-    padding: 2mm;
+    padding: 2mm 3mm;
     background-color: rgb(0, 0, 100, 0.5);
     color: white;
     width: 8cm;
@@ -132,6 +159,11 @@ button:hover {
 .message-form button {
     height: 100%;
     margin: 0 2mm;
+}
+
+.channel-directory {
+    animation-name: fadein;
+    animation-duration: 500ms;
 }
 
 .channel-directory ul {
@@ -162,6 +194,7 @@ button:hover {
 
 .message-form {
     display: flex;
+    margin-right: 3mm;
 }
 
 .message-form textarea {
@@ -226,6 +259,14 @@ button.save {
 
 .room-meta h2 {
     flex-grow: 1;
+    margin-top: 3mm;
+}
+
+.room-meta img.avatar {
+    max-height: 12mm;
+    max-width: 12mm;
+    margin: 1mm 2mm;
+    /* flex-shrink: 0; */
 }
 
 .profile-edit img.avatar {
