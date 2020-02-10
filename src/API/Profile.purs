@@ -52,7 +52,8 @@ putProfileDisplayName si displayname = putProfileAttribute si si.user_id "displa
 putProfileAvatarUrl :: SessionInfo -> Maybe URL -> Aff Unit
 putProfileAvatarUrl si avatar_url = putProfileAttribute si si.user_id "avatar_url" avatar_url
 
-putProfile :: SessionInfo -> UserProfile -> Aff Unit
-putProfile si {displayname,avatar_url} = do
+putProfile :: SessionInfo -> UserProfile -> Aff UserProfile
+putProfile si profile@{displayname,avatar_url} = do
     putProfileDisplayName si displayname
     putProfileAvatarUrl si avatar_url
+    pure profile

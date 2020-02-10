@@ -18,8 +18,9 @@ import Effect.Ref as Ref
 import Effect.Timer (clearInterval, setInterval)
 import Foreign.Object as Object
 import Prim.Row (class Union)
+import Purechat.Types (RemoteResourceView(..))
 import Specular.Dom.Browser (Node, TagName, Attrs)
-import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr', el)
+import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, current, dynamic, filterMapEvent, fixFRP, foldDyn, foldDynMaybe, holdWeakDyn, never, newDynamic, newEvent, sampleAt, subscribeEvent_, switch, unWeakDynamic)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
@@ -39,16 +40,6 @@ elClass tagName cls content = elAttr tagName (Object.fromFoldable [ Tuple "class
 
 elClass' :: forall m a. MonadWidget m => TagName -> String -> m a -> m (Tuple Node a)
 elClass' tagName cls content = elAttr' tagName (Object.fromFoldable [ Tuple "class" cls ]) content
-
--- Similar to Maybe, but more semantically precise way
--- of signaling that a resource is either loading or currently available.
-data RemoteResourceView a
-  = RRLoading
-  | RRLoaded a
-
-instance functorRRView :: Functor RemoteResourceView where
-  map f (RRLoading) = RRLoading
-  map f (RRLoaded a) = RRLoaded (f a)
 
 remoteLoadingView :: forall a b m. MonadWidget m => Dynamic (RemoteResourceView a) -> m Unit -> (a -> m b) -> m (Dynamic (Maybe b))
 remoteLoadingView d loadingView loadedView =
@@ -240,3 +231,11 @@ dynamicHitsTarget d t = filterMapEvent (\s -> if s == t then Just unit else Noth
 
 filterByBool :: Event Boolean -> Event Unit 
 filterByBool = filterMapEvent $ if _ then Just unit else Nothing
+
+holdFirst :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
+holdFirst updt = foldDynMaybe (\a current -> case current of
+  Just _ -> Nothing
+  Nothing -> Just (Just a)) Nothing updt
+
+-- firstAppearanceOfKey :: forall k v. Ord k => k -> Dynamic (Map k v) -> Dynamic (Maybe v)
+-- firstAppearanceOfKey k dm = holdFirst (filterMapEvent (Map.lookup k) changed dm)

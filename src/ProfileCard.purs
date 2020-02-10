@@ -15,7 +15,7 @@ import Specular.FRP (subscribeEvent_)
   
 
 profileCard :: forall m. MonadWidget m => 
-  GlobalEnv
+  GlobalEnv m
    -> { userId :: UserId, profile :: Maybe UserProfile } 
    -> m Unit
 profileCard env toShow =

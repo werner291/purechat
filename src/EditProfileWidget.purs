@@ -44,7 +44,7 @@ fileInputOnChange = do
   domChanged <- domEventWithSample getFileHack "input" element
   pure domChanged
 
-editProfileWidget :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> UserProfile -> m (Event UserProfile)
+editProfileWidget :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> UserProfile -> m Unit
 editProfileWidget si p =
   elClass "div" "profile-edit"
     $ do
@@ -75,14 +75,16 @@ editProfileWidget si p =
                   showAvatarOrDefault si (Just mxc)
                   fileChosen <- fileInputOnChange
                   pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+
         av_url :: Dynamic (Maybe String) <- holdDyn p.avatar_url (map Just av_url_updates)
+
         let
           candidateProfile :: Dynamic UserProfile
           candidateProfile = do
             d <- displayname
             a <- av_url
             pure { displayname: Just d, avatar_url: a }
-        updt <-
+        _ <-
           affButtonLoop
             $ case _ of
                 NotRequested -> do
@@ -99,4 +101,4 @@ editProfileWidget si p =
                   text $ "Profile updated successfully."
                   clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
                   pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
-        pure updt
+        pure unit

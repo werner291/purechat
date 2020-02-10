@@ -16,7 +16,7 @@ import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.JoinRoomWidget (joinRoomView)
-import Purechat.ServerFeed (RoomMeta, JoinedRoom)
+import Purechat.Types (RoomMeta, JoinedRoom)
 import Purechat.Types (GlobalEnv, MatrixEvent, MatrixRoomEvent(..), RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', elAttr, text)
@@ -52,7 +52,7 @@ composeMessageWidget =
   in
     elClass "div" "message-form" $ fixFRP loop
 
-viewEvent :: forall m. MonadWidget m => GlobalEnv -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
+viewEvent :: forall m. MonadWidget m => GlobalEnv m -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
 viewEvent env drd evt =
   elClass "div" "message-wrapper" $ dynamic_ $ drd
     <#> \rd -> do
@@ -173,7 +173,7 @@ autoScroll msgListNode reset msgs = do
   pure {following : isAtBottom}
 
 -- | Component that displays a list of messages, allowing for lazy loading and updates.
-messageListView :: forall m. MonadWidget m => GlobalEnv -> RoomId -> JoinedRoom m -> m Unit
+messageListView :: forall m. MonadWidget m => GlobalEnv m -> RoomId -> JoinedRoom m -> m Unit
 messageListView env rId room =
   fixFRP_ \requestMore -> do
     let
@@ -204,7 +204,7 @@ messageListView env rId room =
     pure $ gateEventBy scrollHitZero (not <$> current room.loadingMessages)
 
 -- A widget showing the contents of a room that the user is currently participating in.
-joinedRoomView :: forall m. MonadWidget m => GlobalEnv -> RoomId -> JoinedRoom m -> m Unit
+joinedRoomView :: forall m. MonadWidget m => GlobalEnv m -> RoomId -> JoinedRoom m -> m Unit
 joinedRoomView env rId room = do
 
   roomTopBar env.session rId room.meta
@@ -222,7 +222,7 @@ joinedRoomView env rId room = do
 -- join status. If the user is not in the room, they will be shown join/invite options instead.
 -- The room directory separate from the room view. Think of the directory as a "remote control"
 -- for this widget/ The room view widget can function independently from the directory.
-roomView :: forall m. MonadWidget m => GlobalEnv -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
+roomView :: forall m. MonadWidget m => GlobalEnv m -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
 roomView env rId mrd =
   elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ])
     $ do

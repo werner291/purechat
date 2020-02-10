@@ -1,16 +1,15 @@
-module Purechat.ServerFeed (serverState, KnownServerState, JoinedRoom, RoomMeta) where
+module Purechat.ServerFeed (serverState) where
 
 import Prelude
 
 import API.Rooms (getEventsUpto)
-import Affjax (URL)
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
 import Control.Apply (lift2)
 import Control.Monad.Cleanup (CleanupT, onCleanup)
-import CustomCombinators (RemoteResourceView, affSuccesses, fanOutM, toLoadedUpdates)
+import CustomCombinators (affSuccesses, fanOutM, toLoadedUpdates)
 import Data.Argonaut (Json, decodeJson, getField, (.:))
 import Data.Array as Array
 import Data.Either (Either(..))
@@ -22,7 +21,6 @@ import Data.Map (Map, findMax)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Maybe as Maybe
-import Data.Set (Set)
 import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
@@ -32,7 +30,7 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object (Object)
-import Purechat.Types (EventId, LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RoomId(..), SessionInfo, TimeEventId, UserId, UserProfile, decodeRoomEvent, getTimeId, unRoomId)
+import Purechat.Types (JoinedRoom, KnownServerState, LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RemoteResourceView, RoomId(..), RoomInvite, RoomMeta, RoomUpdate, SessionInfo, SyncPollResult, TimeEventId, UserId, UserStatus, decodeRoomEvent, getTimeId, unRoomId)
 import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, startAff)
 
@@ -54,58 +52,6 @@ foldEventIntoRoomState { content } st = case content of
   Right (RoomAvatar a) -> st { avatar_url = Just a }
   Right (RoomPinnedEvents evts) -> st { pinned_events = evts }
   -- _ -> st
-
--- appendToTimeline :: MatrixEvent MatrixRoomEvent -> RoomData -> RoomData
--- appendToTimeline ev rd = rd { timeline = Array.snoc rd.timeline ev }
--- Short summary of a room's features.
-type RoomMeta
-  = { room_id :: RoomId
-    , canonical_alias :: Maybe String -- Room's canonical alias
-    , topic :: Maybe String -- A topic, if the room has one
-    , members :: Map UserId UserProfile -- A Map of room participants and their profile (May end up splitting this up with lazy loading)
-    , display_name :: String -- Cached version of `roomNameFromData`
-    , name :: Maybe String -- Explicitly-set name of the room
-    , avatar_url :: Maybe URL
-    , pinned_events :: Array EventId
-    }
-
--- A bundle of Dynamics related to a given room.
-type JoinedRoom m
-  = { messages :: Dynamic Int -> m (Dynamic (Array (MatrixEvent MatrixRoomEvent)))
-    , loadingMessages :: Dynamic Boolean
-    , meta :: Dynamic RoomMeta
-    }
-
--- dynState :: forall m. MonadFRP m => m (Dynamic Map RoomId (JoinedRoom m))
-type KnownServerState m
-  = { joined_rooms :: Dynamic (Map RoomId (JoinedRoom m))
-    , invited_to :: Dynamic (Set RoomId)
-    }
-
-type RoomLeave
-  = {}
-
-type RoomInvite
-  = {}
-
--- | The parsed type resulting from a single call to the r0/sync API endpoint.
--- | Consider this type as containing arbitrary new information from the server
--- | that is to be merged with our current view of the server data.
-type SyncPollResult
-  = { rooms ::
-      { join :: Map RoomId RoomUpdate
-      , invite :: Map RoomId RoomInvite
-      , leave :: Map RoomId RoomLeave
-      }
-    , next_batch :: String
-    }
-
--- A set of updates specifically pertaining to one room.
-type RoomUpdate
-  = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
-    , new_state_events :: Array (MatrixEvent MatrixRoomEvent)
-    , prev_batch :: PrevBatchToken
-    }
 
 -- Decode a RoomUpdate from JSON.
 decodeRoomUpdate :: Json -> Either String RoomUpdate
@@ -138,7 +84,8 @@ decodePollResult json = do
   leaveRooms <- getField rooms "leave"
   leave <- traverse decodeJson $ objToRoomMap leaveRooms
   next_batch <- obj .: "next_batch"
-  pure { rooms: { join, invite, leave }, next_batch }
+  presence <- obj .: "presence"
+  pure { rooms: { join, invite, leave }, next_batch, presence }
 
 -- Perform a single long-poll request to the /sync endpoint.
 pollSyncOnce :: SessionInfo -> Maybe String -> Aff SyncPollResult
@@ -208,6 +155,9 @@ foldUpdateIntoRoomMeta ruu meta = Array.foldl (flip foldEventIntoRoomState) meta
 
 tupleizeFeed :: Event SyncPollResult -> Event (Array (Tuple RoomId RoomUpdate))
 tupleizeFeed feed = feed <#> \ru -> (Map.toUnfoldable $ ru.rooms.join)
+
+tupleizePresence :: Event SyncPollResult -> Event (Array (Tuple UserId UserStatus))
+tupleizePresence feed = feed <#> \ru -> (Map.toUnfoldable $ ru.presence)
 
 combineDemands :: Dynamic (Map Int (Dynamic Int)) -> Dynamic Int
 combineDemands dems = foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 =<< dems
@@ -323,11 +273,13 @@ mkRoomFeed si rId ru rus = do
       pure nd_messages
   pure { messages, loadingMessages, meta }
 
+decodePresenceEvent :: forall m. Json -> Either String (UserStatus)
+
 serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
 serverState si = do
   feed :: Event SyncPollResult <- syncFeed si
   joined_rooms <- fanOutM (tupleizeFeed feed) (mkRoomFeed si)
   joined_rooms_rr :: Dynamic (RemoteResourceView (Map RoomId (JoinedRoom m))) <-
     toLoadedUpdates $ changed joined_rooms
-  pure $ map (map $ const { joined_rooms: joined_rooms, invited_to: pure $ Set.empty }) joined_rooms_rr
- -- rooms_st <- newDynamic (Map.empty :: Map RoomId (InternalRoomState m))   --    -- cleanups :: Ref.Ref (Effect Unit) <- liftEffect $ Ref.new (pure unit)   -- onCleanup $ Ref.read cleanups >>= \c -> c   -- flip subscribeEvent_ updates \spr -> do  --   st <- rooms_st.read  --   (Tuple st' cleanup) <- runCleanupT $ Array.foldM foldStepTuple st (Map.toUnfoldable spr.rooms.join)  --   _ <- Ref.modify (\c -> c >>= const cleanup) cleanups  --   rooms_st.set st'  -- joined_rooms <- toLoadedUpdates $ changed $ rooms_st.dynamic 
+  global_presence <- fanOutM (decodePres feed) (\userId init updt -> holdDyn init updt)
+  pure $ map (map $ const { joined_rooms: joined_rooms, invited_to: pure $ Set.empty, global_presence }) joined_rooms_rr

@@ -9,13 +9,14 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Tuple (Tuple(..))
 import Effect.Aff (message)
+import Effect.Class (liftEffect)
 import Foreign.Object as Object
-import Purechat.Types (RoomId, SessionInfo, UserId(..), unUserId)
+import Purechat.Types (GlobalEnv, UserId(..), unUserId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (textInputOnInput)
-import Specular.FRP (Dynamic, Event, dynamic, fixEvent, foldDyn, leftmost, switch, tagDyn)
+import Specular.FRP (Dynamic, dynamic, fixEvent, foldDyn, leftmost, switch, tagDyn)
 import Specular.FRP.List (dynamicList)
 
 data InviteeListAction
@@ -51,8 +52,8 @@ inviteesList =
         newInviteeBtn <- buttonOnClick (pure (Object.singleton "class" "invitee-add")) $ text "Add"
         pure $ Tuple (AddInvitee <<< UserId <$> tagDyn newInviteeId newInviteeBtn) invitees
 
-createRoomWidget :: forall m. MonadWidget m => SessionInfo -> m (Event RoomId)
-createRoomWidget si =
+createRoomWidget :: forall m. MonadWidget m => GlobalEnv m -> m Unit
+createRoomWidget {session, openRoom} =
   elClass "div" "create-room"
     $ do
         el "h2" $ text "Create a new room"
@@ -61,13 +62,13 @@ createRoomWidget si =
           elClass "div" "input-group" do
             el "h3" $ text "Canonical alias"
             alias <- textInputOnInput "" Object.empty
-            text $ ":" <> si.homeserver
+            text $ ":" <> session.homeserver
             pure alias
         invitees <-
           elClass "div" "input-group" do
             el "h3" $ text "Invitees"
             inviteesList
-        affButtonLoopSimplified
+        _ <- affButtonLoopSimplified
           { ready:
             \er -> do
               case er of
@@ -79,7 +80,9 @@ createRoomWidget si =
                     ( do
                         a <- alias
                         i <- invitees
-                        pure $ createRoom si a i
+                        pure $ do
+                          rId <- createRoom session a i
+                          liftEffect $ openRoom rId
                     )
                     createClicks
           , loading:
@@ -90,3 +93,5 @@ createRoomWidget si =
             \_ -> do
               text $ "Created successfully!"
           }
+
+        pure unit
