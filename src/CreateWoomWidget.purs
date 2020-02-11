@@ -11,7 +11,7 @@ import Data.Tuple (Tuple(..))
 import Effect.Aff (message)
 import Effect.Class (liftEffect)
 import Foreign.Object as Object
-import Purechat.Types (GlobalEnv, UserId(..), unUserId)
+import Purechat.Types (UserId(..), unUserId)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)

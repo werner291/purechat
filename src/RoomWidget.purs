@@ -3,21 +3,23 @@ module RoomWidget (roomView, joinedRoomView) where
 import Prelude
 
 import API.Core (sendMessage)
-import API.Rooms (leaveRoom)
+import API.Rooms (RoomMeta, JoinedRoom, leaveRoom)
 import Control.Apply (lift2, lift3)
 import CustomCombinators (affButtonLoopSimplified, childListMutations, clockMilliseconds, dynamicHitsTarget, dynamicMaybe_, elClass, elClass', elemOnClick, filterByBool, gateEventBy, holdPast, pulseSpinner, sampleFn, subscribeEvent, withPastSkipFirst)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
+import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..))
+import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.JoinRoomWidget (joinRoomView)
-import Purechat.Types (RoomMeta, JoinedRoom)
-import Purechat.Types (GlobalEnv, MatrixEvent, MatrixRoomEvent(..), RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
+import Purechat.Types (RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
@@ -53,7 +55,7 @@ composeMessageWidget =
     elClass "div" "message-form" $ fixFRP loop
 
 viewEvent :: forall m. MonadWidget m => GlobalEnv m -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
-viewEvent env drd evt =
+viewEvent env drd (MatrixEvent evt) =
   elClass "div" "message-wrapper" $ dynamic_ $ drd
     <#> \rd -> do
         let
@@ -81,6 +83,7 @@ viewEvent env drd evt =
               Right (RoomTopic n) -> text $ sender_displayname <> " set the room's topic to " <> n
               Right (RoomCanonicalAlias n) -> text $ sender_displayname <> " set the room's canonical alias to " <> n
               Right (RoomPinnedEvents pins) -> text $ sender_displayname <> " changed the pinned messages."
+              Right (UnknownRoomEvent evtt) -> text $ sender_displayname <> " unknown event type " <> evtt
 
 leaveButton :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
 leaveButton si rId = do

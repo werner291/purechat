@@ -65,6 +65,27 @@ mainView env currentRoomView = do
 userStateToProfile :: UserStatus -> UserProfile
 userStateToProfile ust = {avatar_url:ust.avatar_url, displayname:ust.displayname}
 
+-- class Interruptible a b | a -> b where
+--   interrupted :: a -> b
+
+-- instance eventInterruptible :: Interruptible (Event a) (Event a) where
+--   interrupted ev = ev
+
+-- dynamicMergeOutputs :: forall a m. Interruptible a. MonadWidget m => 
+  
+-- componentA :: forall m. MonadWidget m => m { a :: Event Int }
+-- componentA = ?impl_a
+
+-- componentB :: forall m. MonadWidget m => m { b :: Event String }
+-- componentB = ?impl_b
+
+
+-- dynMonoid :: forall sA sB sU m. Record.Builder sA sB sU => Monoid a => MonadWidget m => Dynamic (m a) -> m (Dynamic a)
+-- dynMonoid = ?wut
+
+switchEvents :: forall a b. Dynamic (Record (a :: Event a, b ::Event b))-> { a :: Event a, b ::Event b }
+switchEvents inpts = ?wut
+
 -- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> { logout :: Effect Unit } -> m Unit
 primaryView si env = do

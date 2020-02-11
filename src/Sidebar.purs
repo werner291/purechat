@@ -2,12 +2,13 @@ module Purechat.Widgets.Sidebar (sidebar) where
 
 import Prelude
 
-import CustomCombinators (elClass, elemOnClick, pulseSpinner, remoteLoadingView_)
+import CustomCombinators (elClass, elemOnClick, pulseSpinner)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Foreign.Object as Object
 import Purechat.ChannelDirectoryWidget (channelDirectory)
 import Purechat.CustomWidgets (showAvatarOrDefault)
-import Purechat.Types (GlobalEnv, UserProfile, unUserId)
+import Purechat.GlobalEnv (GlobalEnv)
+import Purechat.Types (UserProfile, unUserId)
 import Specular.Dom.Builder.Class (text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
