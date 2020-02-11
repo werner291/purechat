@@ -2,9 +2,10 @@ module Purechat.GlobalEnv where
 
 import Prelude
 
-import API.Rooms (KnownServerState)
 import Data.Maybe (Maybe)
 import Effect (Effect)
+import Effect.Aff (Aff)
+import Purechat.ServerFeed (KnownServerState)
 import Purechat.Types (RemoteResourceView, RoomId, SessionInfo, UserId, UserProfile)
 import Specular.FRP (Dynamic)
   
@@ -22,6 +23,7 @@ type GlobalEnv m =
   , channels_state :: Dynamic (RemoteResourceView (KnownServerState m))
   , logout :: Effect Unit
   , editProfile :: Effect Unit
+  , updateProfile :: UserProfile -> Aff UserProfile
   , openRoom :: RoomId -> Effect Unit
   , createRoom :: Effect Unit
   , closeCurrentProfileCard :: Effect Unit

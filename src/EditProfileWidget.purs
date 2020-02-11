@@ -11,6 +11,7 @@ import Effect (Effect)
 import Effect.Exception (message)
 import Foreign.Object as Object
 import Prelude (Unit, bind, const, discard, identity, map, pure, unit, ($), (<$>), (<<<), (<>), (>>=))
+import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.Types (SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Builder.Class (domEventWithSample, el, elAttr, elAttr', text)
 import Specular.Dom.Widget (class MonadWidget)
@@ -44,8 +45,8 @@ fileInputOnChange = do
   domChanged <- domEventWithSample getFileHack "input" element
   pure domChanged
 
-editProfileWidget :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> UserProfile -> m Unit
-editProfileWidget si p =
+editProfileWidget :: forall m. MonadWidget m => GlobalEnv m -> UserProfile -> m Unit
+editProfileWidget env p =
   elClass "div" "profile-edit"
     $ do
         el "h2" $ text "Profile"
@@ -53,7 +54,7 @@ editProfileWidget si p =
         displayname :: Dynamic String <- elClass "div" "input-group" do
           el "h3" $ text "Display Name"
           text "This will not affect your User ID."
-          textInputOnInput (fromMaybe (unUserId si.user_id) (p.displayname)) Object.empty
+          textInputOnInput (fromMaybe (unUserId env.session.user_id) (p.displayname)) Object.empty
 
         el "h3" $ text "Avatar"
 
@@ -61,20 +62,20 @@ editProfileWidget si p =
           affButtonLoop
             $ case _ of
                 NotRequested -> do
-                  showAvatarOrDefault si p.avatar_url
+                  showAvatarOrDefault env.session p.avatar_url
                   fileChosen <- fileInputOnChange
-                  pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+                  pure $ (uploadMXC env.session) <<< toBlob <$> filterMapEvent identity fileChosen
                 Loading -> do
                   pulseSpinner
                   pure never
                 Loaded (Left err) -> do
-                  showAvatarOrDefault si p.avatar_url
+                  showAvatarOrDefault env.session p.avatar_url
                   fileChosen <- fileInputOnChange
-                  pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+                  pure $ (uploadMXC env.session) <<< toBlob <$> filterMapEvent identity fileChosen
                 Loaded (Right mxc) -> do
-                  showAvatarOrDefault si (Just mxc)
+                  showAvatarOrDefault env.session (Just mxc)
                   fileChosen <- fileInputOnChange
-                  pure $ (uploadMXC si) <<< toBlob <$> filterMapEvent identity fileChosen
+                  pure $ (uploadMXC env.session) <<< toBlob <$> filterMapEvent identity fileChosen
 
         av_url :: Dynamic (Maybe String) <- holdDyn p.avatar_url (map Just av_url_updates)
 
@@ -89,16 +90,16 @@ editProfileWidget si p =
             $ case _ of
                 NotRequested -> do
                   clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
-                  pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
+                  pure $ (\pp -> env.updateProfile pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
                 Loading -> do
                   pulseSpinner
                   pure never
                 Loaded (Left err) -> do
                   text $ "Error occurred: " <> (message err)
                   clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
-                  pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
+                  pure $ (\pp -> env.updateProfile pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
                 Loaded (Right mxc) -> do
                   text $ "Profile updated successfully."
                   clicks <- buttonOnClick (pure $ Object.singleton "class" "save") $ text "Save"
-                  pure $ (\pp -> putProfile si pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
+                  pure $ (\pp -> env.updateProfile pp >>= (const $ pure pp)) <$> tagDyn candidateProfile clicks
         pure unit

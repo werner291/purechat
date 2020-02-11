@@ -2,7 +2,7 @@ module Purechat.ChannelDirectoryWidget (channelDirectory) where
 
 import Prelude
 
-import API.Rooms (KnownServerState, RoomMeta)
+import API.Rooms (RoomMeta)
 import CustomCombinators (elClass, elemOnClick, pulseSpinner, remoteLoadingView)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -10,6 +10,7 @@ import Data.Set as Set
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Foreign.Object as Object
+import Purechat.ServerFeed (KnownServerState)
 import Purechat.Types (RoomId, mkRoomId, unRoomId, RemoteResourceView)
 import Specular.Dom.Builder.Class (el, text)
 import Specular.Dom.Widget (class MonadWidget)

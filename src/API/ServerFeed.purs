@@ -1,19 +1,19 @@
-module Purechat.ServerFeed (serverState) where
+module Purechat.ServerFeed where
 
 import Prelude
 
-import API.Rooms (getEventsUpto)
+import API.Rooms (RoomMeta, getEventsUpto)
 import Affjax as AX
 import Affjax.RequestHeader (RequestHeader(..))
 import Affjax.ResponseFormat as AXRF
 import Affjax.StatusCode (StatusCode(..))
+import Control.Alt ((<|>))
 import Control.Apply (lift2)
 import Control.Monad.Cleanup (CleanupT, onCleanup)
 import CustomCombinators (affSuccesses, fanOutM, toLoadedUpdates)
 import Data.Argonaut (Json, decodeJson, getField, (.:))
 import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Filterable (filterMap)
 import Data.Foldable (foldM)
 import Data.FoldableWithIndex (foldlWithIndex)
 import Data.List as List
@@ -21,6 +21,7 @@ import Data.Map (Map, findMax)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Maybe as Maybe
+import Data.Set (Set)
 import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
@@ -30,19 +31,59 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object (Object)
-import Purechat.Types (JoinedRoom, KnownServerState, LoginToken(..), MatrixEvent, MatrixRoomEvent(..), PrevBatchToken(..), RemoteResourceView, RoomId(..), RoomInvite, RoomMeta, RoomUpdate, SessionInfo, SyncPollResult, TimeEventId, UserId, UserStatus, decodeRoomEvent, getTimeId, unRoomId)
+import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), TimeEventId, getTimeId)
+import Purechat.Types (LoginToken(..), PrevBatchToken(..), RemoteResourceView, RoomId(..), UserId, UserStatus, SessionInfo, unRoomId)
 import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, startAff)
 
+type RoomLeave
+  = {}
+
+type RoomInvite
+  = {}
+
+-- A set of updates specifically pertaining to one room.
+type RoomUpdate
+  = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
+    , new_state_events :: Array (MatrixEvent MatrixRoomEvent)
+    , prev_batch :: PrevBatchToken
+    }
+
+-- | The parsed type resulting from a single call to the r0/sync API endpoint.
+-- | Consider this type as containing arbitrary new information from the server
+-- | that is to be merged with our current view of the server data.
+type SyncPollResult
+  = { rooms ::
+      { join :: Map RoomId RoomUpdate
+      , invite :: Map RoomId RoomInvite
+      , leave :: Map RoomId RoomLeave
+      }
+    , presence :: Map UserId UserStatus
+    , next_batch :: String
+    }
+
+type JoinedRoom m
+  = { messages :: Dynamic Int -> m (Dynamic (Array (MatrixEvent MatrixRoomEvent)))
+    , loadingMessages :: Dynamic Boolean
+    , meta :: Dynamic RoomMeta
+    }
+
+type KnownServerState m
+  = { joined_rooms :: Dynamic (Map RoomId (JoinedRoom m))
+    , invited_to :: Dynamic (Set RoomId)
+    -- , global_presence :: Dynamic (Map UserId (Dynamic UserStatus))
+    }
+
 -- Approximate implementation of https://matrix.org/docs/spec/client_server/r0.5.0#calculating-the-display-name-for-a-room
 roomNameFromData :: RoomMeta -> String
-roomNameFromData { room_id, name, canonical_alias, members } = fromMaybe (unRoomId room_id) $ Array.head $ filterMap identity [ name, canonical_alias ]
+roomNameFromData { room_id, name, canonical_alias, members } = 
+  fromMaybe (unRoomId room_id) $ name <|> canonical_alias
 
 updateRoomName :: RoomMeta -> RoomMeta
 updateRoomName rd = rd { display_name = roomNameFromData rd }
 
 foldEventIntoRoomState :: MatrixEvent MatrixRoomEvent -> RoomMeta -> RoomMeta
-foldEventIntoRoomState { content } st = case content of
+foldEventIntoRoomState (MatrixEvent { content }) st = case content of
   Left _ -> st
   Right (Message _) -> st
   Right (RoomName name) -> updateRoomName $ st { name = Just name }
@@ -51,6 +92,7 @@ foldEventIntoRoomState { content } st = case content of
   Right (Membership m) -> updateRoomName $ st { members = Map.insert m.user_id m.profile st.members }
   Right (RoomAvatar a) -> st { avatar_url = Just a }
   Right (RoomPinnedEvents evts) -> st { pinned_events = evts }
+  Right (UnknownRoomEvent _) -> st
   -- _ -> st
 
 -- Decode a RoomUpdate from JSON.
@@ -58,10 +100,10 @@ decodeRoomUpdate :: Json -> Either String RoomUpdate
 decodeRoomUpdate json = do
   o <- decodeJson json
   timeline <- o .: "timeline"
-  new_timeline_events <- traverse decodeRoomEvent =<< timeline .: "events"
+  new_timeline_events <- timeline .: "events"
   prev_batch <- PrevBatchToken <$> timeline .: "prev_batch"
   state <- o .: "state"
-  new_state_events <- traverse decodeRoomEvent =<< state .: "events"
+  new_state_events <- state .: "events"
   pure
     { new_timeline_events
     , new_state_events
@@ -273,7 +315,7 @@ mkRoomFeed si rId ru rus = do
       pure nd_messages
   pure { messages, loadingMessages, meta }
 
-decodePresenceEvent :: forall m. Json -> Either String (UserStatus)
+-- decodePresenceEvent :: forall m. Json -> Either String (UserStatus)
 
 serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
 serverState si = do
@@ -281,5 +323,5 @@ serverState si = do
   joined_rooms <- fanOutM (tupleizeFeed feed) (mkRoomFeed si)
   joined_rooms_rr :: Dynamic (RemoteResourceView (Map RoomId (JoinedRoom m))) <-
     toLoadedUpdates $ changed joined_rooms
-  global_presence <- fanOutM (decodePres feed) (\userId init updt -> holdDyn init updt)
-  pure $ map (map $ const { joined_rooms: joined_rooms, invited_to: pure $ Set.empty, global_presence }) joined_rooms_rr
+  -- global_presence <- fanOutM (decodePres feed) (\userId init updt -> holdDyn init updt)
+  pure $ map (map $ const { joined_rooms: joined_rooms, invited_to: pure $ Set.empty {-, global_presence-} }) joined_rooms_rr

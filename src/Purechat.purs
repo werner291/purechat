@@ -2,20 +2,22 @@ module Purechat.Purechat (primaryView) where
 
 import Prelude
 
-import CustomCombinators (dynamicMaybe_, elClass, holdFirst, pulseSpinner, remoteLoadingView)
+import API.Profile (profileStore)
+import CustomCombinators (dynamicMaybe_, elClass, pulseSpinner, remoteLoadingView)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Purechat.EditProfileWidget (editProfileWidget)
+import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.ServerFeed (serverState)
-import Purechat.Types (GlobalEnv, RoomId, SessionInfo, UserProfile, UserStatus, fromRRLoaded)
+import Purechat.Types (RoomId, SessionInfo, UserProfile, UserStatus)
 import Purechat.Widgets.CreateRoomWidget (createRoomWidget)
 import Purechat.Widgets.ProfileCard (profileCard)
 import Purechat.Widgets.Sidebar (sidebar)
 import RoomWidget (roomView)
 import Specular.Dom.Builder.Class (text)
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.FRP (class MonadFRP, Dynamic, Event, changed, dynamic_, filterJustEvent, never, newDynamic, readDynamic, switch)
+import Specular.FRP (class MonadFRP, Dynamic, Event, dynamic_, never, newDynamic, readDynamic, switch)
 
 data RoomViewState
   = PickRoom
@@ -43,7 +45,7 @@ mainView env currentRoomView = do
             Nothing -> do
               pulseSpinner
               text "Loading profile..."
-            Just prof -> editProfileWidget env.session prof
+            Just prof -> editProfileWidget env prof
         CreateRoom -> do
           createRoomWidget env
         ShowRoom rid -> do
@@ -83,8 +85,8 @@ userStateToProfile ust = {avatar_url:ust.avatar_url, displayname:ust.displayname
 -- dynMonoid :: forall sA sB sU m. Record.Builder sA sB sU => Monoid a => MonadWidget m => Dynamic (m a) -> m (Dynamic a)
 -- dynMonoid = ?wut
 
-switchEvents :: forall a b. Dynamic (Record (a :: Event a, b ::Event b))-> { a :: Event a, b ::Event b }
-switchEvents inpts = ?wut
+-- switchEvents :: forall a b. Dynamic (Record (a :: Event a, b ::Event b))-> { a :: Event a, b ::Event b }
+-- switchEvents inpts = ?wut
 
 -- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> { logout :: Effect Unit } -> m Unit
@@ -93,15 +95,17 @@ primaryView si env = do
   currentProfileCard <- newDynamic Nothing
   server_state <- serverState si
 
-  user_profile :: Dynamic (Maybe UserProfile) <- holdFirst $ filterJustEvent $ changed $ do
-    map fromRRLoaded server_state >>=
-      case _ of
-        Just st -> do
-          pres <- st.global_presence
-          case Map.lookup si.user_id pres of
-            Just d -> (Just <<< userStateToProfile) <$> d
-            Nothing -> pure Nothing
-        Nothing -> pure Nothing
+  user_profile <- profileStore si
+
+  -- user_profile :: Dynamic (Maybe UserProfile) <- holdFirst $ filterJustEvent $ changed $ do
+  --   map fromRRLoaded server_state >>=
+  --     case _ of
+  --       Just st -> do
+  --         pres <- st.global_presence
+  --         case Map.lookup si.user_id pres of
+  --           Just d -> (Just <<< userStateToProfile) <$> d
+  --           Nothing -> pure Nothing
+  --       Nothing -> pure Nothing
 
   let
     inner_env :: GlobalEnv m
@@ -110,7 +114,8 @@ primaryView si env = do
         , editProfile: currentRoomView.set EditProfile
         , openRoom: \rId -> currentRoomView.set (ShowRoom rId)
         , channels_state: server_state
-        , user_profile
+        , user_profile: user_profile.currentProfile
+        , updateProfile : user_profile.updateProfile
         , logout: env.logout
         , session: si
         , showProfile: \userId profile -> currentProfileCard.set (Just { userId, profile })

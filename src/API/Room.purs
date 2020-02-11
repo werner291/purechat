@@ -3,15 +3,30 @@ module API.Rooms where
 import Prelude
 
 import API.Core (getJsonAuthed, postJsonAuthed, responseOkOrBust, responseOkWithBody)
+import Affjax (URL)
 import Data.Argonaut (decodeJson, (.:), (.:?), (:=), (~>))
 import Data.Argonaut as JSON
 import Data.Either (Either(..))
+import Data.Map (Map)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set (Set)
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
 import Global (encodeURIComponent)
-import Purechat.Types (MatrixEvent, MatrixRoomEvent, PrevBatchToken(..), RoomId(..), SessionInfo, UserId, decodeRoomEvent, unPrevBatchToken, unRoomId, unUserId)
+import Purechat.Event (EventId, MatrixEvent, MatrixRoomEvent)
+import Purechat.Types (PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, unPrevBatchToken, unRoomId, unUserId)
+
+-- Short summary of a room's features.
+type RoomMeta
+  = { room_id :: RoomId
+    , canonical_alias :: Maybe String -- Room's canonical alias
+    , topic :: Maybe String -- A topic, if the room has one
+    , members :: Map UserId UserProfile -- A Map of room participants and their profile (May end up splitting this up with lazy loading)
+    , display_name :: String -- Cached version of `roomNameFromData`
+    , name :: Maybe String -- Explicitly-set name of the room
+    , avatar_url :: Maybe URL
+    , pinned_events :: Array EventId
+    }
 
 tryEncodeUriComponent :: String -> Aff String
 tryEncodeUriComponent inp = case encodeURIComponent inp of
@@ -153,9 +168,9 @@ getEventsUpto si rId upto = do
     let 
         dec = do
             o <- decodeJson json
-            chunk <- traverse decodeRoomEvent =<< o .: "chunk"
+            chunk <- traverse decodeJson =<< o .: "chunk"
             s_maybe :: Maybe _ <- o .:? "state"
-            state <- traverse decodeRoomEvent $ (fromMaybe [] s_maybe)
+            state <- traverse decodeJson $ (fromMaybe [] s_maybe)
             from <- map PrevBatchToken <$> o .:? "start"
             to <- map PrevBatchToken <$> o .:? "end"
             pure {chunk,state,from,to}

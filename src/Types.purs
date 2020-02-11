@@ -93,9 +93,12 @@ instance decodeRoomMembership :: DecodeJson RoomMembership where
       "invite" -> Right Invite
       _ -> Left $ "Unknown join status: " <> t
 
+
+
 -------------
 -- Profile --
 -------------
+
 type UserProfile
   = { displayname :: Maybe String
     , avatar_url :: Maybe URL

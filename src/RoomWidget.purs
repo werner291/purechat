@@ -3,7 +3,7 @@ module RoomWidget (roomView, joinedRoomView) where
 import Prelude
 
 import API.Core (sendMessage)
-import API.Rooms (RoomMeta, JoinedRoom, leaveRoom)
+import API.Rooms (RoomMeta, leaveRoom)
 import Control.Apply (lift2, lift3)
 import CustomCombinators (affButtonLoopSimplified, childListMutations, clockMilliseconds, dynamicHitsTarget, dynamicMaybe_, elClass, elClass', elemOnClick, filterByBool, gateEventBy, holdPast, pulseSpinner, sampleFn, subscribeEvent, withPastSkipFirst)
 import Data.Array as Array
@@ -19,6 +19,7 @@ import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..))
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.JoinRoomWidget (joinRoomView)
+import Purechat.ServerFeed (JoinedRoom)
 import Purechat.Types (RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', elAttr, text)
@@ -146,8 +147,8 @@ autoScroll msgListNode reset msgs = do
   let
     listSnapshot = lift2 ( \h msg ->
             { listHeight: h
-            , fstId: Array.head msg <#> _.event_id
-            , lstId: Array.last msg <#> _.event_id
+            , fstId: Array.head msg <#> (unwrap >>> _.event_id)
+            , lstId: Array.last msg <#> (unwrap >>> _.event_id)
             }
         ) listHeight msgs
 
