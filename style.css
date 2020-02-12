@@ -167,6 +167,10 @@ button:hover {
     margin: 0 2mm;
 }
 
+.message-form input[type="file"] {
+    display: none;
+}
+
 .channel-directory {
     animation-name: fadein;
     animation-duration: 500ms;

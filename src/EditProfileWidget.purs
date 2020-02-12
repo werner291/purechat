@@ -1,28 +1,24 @@
 module Purechat.EditProfileWidget (editProfileWidget) where
 
-import API.Media (mxcUrlToHttpUrl, uploadMXC)
-import API.Profile (putProfile)
+import API.Media (mxcUrlToHttpUrl)
 import Affjax (URL)
+import Control.Alt (alt)
 import CustomCombinators (affButtonLoop, elClass, pulseSpinner)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
-import Effect (Effect)
 import Effect.Exception (message)
 import Foreign.Object as Object
-import Prelude (Unit, bind, const, discard, identity, map, pure, unit, ($), (<$>), (<<<), (<>), (>>=))
+import Prelude (Unit, bind, const, discard, pure, unit, ($), (<$>), (<>), (>>=))
+import Purechat.CustomWidgets (uploadingFilePicker)
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.Types (SessionInfo, UserProfile, unUserId)
-import Specular.Dom.Builder.Class (domEventWithSample, el, elAttr, elAttr', text)
+import Specular.Dom.Builder.Class (el, elAttr, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (textInputOnInput)
-import Specular.FRP (class MonadFRP, Dynamic, Event, filterMapEvent, holdDyn, never, tagDyn)
+import Specular.FRP (Dynamic, dynamic_, never, tagDyn)
 import Specular.FRP.Async (RequestState(..))
-import Unsafe.Coerce (unsafeCoerce)
-import Web.File.File (File, toBlob)
-import Web.File.FileList as FL
-import Web.HTML.HTMLInputElement (files)
 
 showAvatarOrDefault :: forall m. MonadWidget m => SessionInfo -> Maybe URL -> m Unit
 showAvatarOrDefault si url = do
@@ -34,16 +30,7 @@ showAvatarOrDefault si url = do
     )
     (pure unit)
 
-fileInputOnChange :: forall m. MonadWidget m => m (Event (Maybe File))
-fileInputOnChange = do
-  Tuple element _ <- elAttr' "input" (Object.singleton "type" "file") (pure unit)
-  let
-    getFileHack :: _ -> Effect (Maybe File)
-    getFileHack _ = do
-      fs <- files (unsafeCoerce element)
-      pure $ (fs >>= FL.item 0)
-  domChanged <- domEventWithSample getFileHack "input" element
-  pure domChanged
+
 
 editProfileWidget :: forall m. MonadWidget m => GlobalEnv m -> UserProfile -> m Unit
 editProfileWidget env p =
@@ -58,26 +45,9 @@ editProfileWidget env p =
 
         el "h3" $ text "Avatar"
 
-        av_url_updates :: Event URL <-
-          affButtonLoop
-            $ case _ of
-                NotRequested -> do
-                  showAvatarOrDefault env.session p.avatar_url
-                  fileChosen <- fileInputOnChange
-                  pure $ (uploadMXC env.session) <<< toBlob <$> filterMapEvent identity fileChosen
-                Loading -> do
-                  pulseSpinner
-                  pure never
-                Loaded (Left err) -> do
-                  showAvatarOrDefault env.session p.avatar_url
-                  fileChosen <- fileInputOnChange
-                  pure $ (uploadMXC env.session) <<< toBlob <$> filterMapEvent identity fileChosen
-                Loaded (Right mxc) -> do
-                  showAvatarOrDefault env.session (Just mxc)
-                  fileChosen <- fileInputOnChange
-                  pure $ (uploadMXC env.session) <<< toBlob <$> filterMapEvent identity fileChosen
+        av_url :: Dynamic (Maybe URL) <- uploadingFilePicker env.session
 
-        av_url :: Dynamic (Maybe String) <- holdDyn p.avatar_url (map Just av_url_updates)
+        dynamic_ $ showAvatarOrDefault env.session <$> (alt p.avatar_url <$> av_url)
 
         let
           candidateProfile :: Dynamic UserProfile

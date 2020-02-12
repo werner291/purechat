@@ -2,7 +2,7 @@ module RoomWidget (roomView, joinedRoomView) where
 
 import Prelude
 
-import API.Core (sendMessage)
+import API.Core (sendTextMessage)
 import API.Rooms (RoomMeta, leaveRoom)
 import Control.Apply (lift2, lift3)
 import CustomCombinators (affButtonLoopSimplified, childListMutations, clockMilliseconds, dynamicHitsTarget, elClass, elClass', elemOnClick, filterByBool, gateEventBy, holdPast, pulseSpinner, sampleFn, subscribeEvent, withPastSkipFirst)
@@ -12,16 +12,15 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
-import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
-import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), MessageType)
+import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), MessageType(..))
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.JoinRoomWidget (joinRoomView)
 import Purechat.ServerFeed (JoinedRoom)
-import Purechat.Types (RoomId, RoomMembership(..), SessionInfo, UserId(..), UserProfile, unUserId)
+import Purechat.Types (RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
 import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', text)
 import Specular.Dom.Widget (class MonadWidget)
@@ -41,15 +40,36 @@ textareaOnChangeWithReset reset = do
   subscribeEvent_ (\_ -> setTextInputValue node "") reset
   holdDyn "" changed
 
-composeMessageWidget :: forall m. MonadWidget m => m (Event String)
-composeMessageWidget =
+composeMessageWidget :: forall m. MonadWidget m => GlobalEnv m -> m (Event String)
+composeMessageWidget env =
   let
     loop :: Event Unit -> m (Tuple (Event Unit) (Event String))
     loop reset = do
       composeMessage :: Dynamic String <- textareaOnChangeWithReset reset
+
+    --   av_url_updates <- affButtonLoopSimplified
+    -- $ case _ of
+    --     NotRequested -> do
+    --       fileChosen <- fileInputOnChange
+    --       pure $ (uploadMXC session) <<< toBlob <$> filterMapEvent identity fileChosen
+    --     Loading -> do
+    --       pulseSpinner
+    --       pure never
+    --     Loaded (Left err) -> do
+    --       fileChosen <- fileInputOnChange
+    --       pure $ (uploadMXC session) <<< toBlob <$> filterMapEvent identity fileChosen
+    --     Loaded (Right mxc) -> do
+    --       fileChosen <- fileInputOnChange
+    --       pure $ (uploadMXC session) <<< toBlob <$> filterMapEvent identity fileChosen
+
+  -- holdDyn Nothing (map Just av_url_updates)
+      
+      -- attachmentUrl <- invisibleUploadingFileInput attachButton =<< do
+      --   buttonOnClick (pure mempty) $ do
+      --     elClass "i" "fas fa-paperclip" $ pure unit
+
       sendBtnClicked :: Event Unit <- buttonOnClick (pure mempty) $ do
         elClass "i" "fas fa-paper-plane" $ pure unit
-        text " Send"
       let
         outbox = tagDyn composeMessage sendBtnClicked
 
@@ -91,7 +111,20 @@ viewEvent env drd (MatrixEvent evt) =
 
     case evt.content of
       Left errMsg -> elClass "p" "error" $ text $ "Error while decoding message from " <> sender_displayname <> ": " <> errMsg
-      Right (Message { body }) -> messageView body
+      Right (Message { body, msgtype }) -> case msgtype of
+        Emote -> elClass "div" "event-emote" do
+          clickeableUsername
+          elClass "p" "message-body" $ text body
+        Notice -> elClass "div" "event-notice" do
+          clickeableUsername
+          elClass "p" "message-body" $ text body
+        -- Image url -> 
+        -- File URL
+        -- Audio URL
+        -- Location String
+        -- Video URL
+        -- Unknown String
+        _ -> messageView body
       Right (Membership { profile, membership: Join }) -> actionView " joined the room."
       Right (Membership { profile, membership: Invite }) -> actionView " has been invited to the room."
       Right (Membership { profile, membership: Leave }) -> actionView " the left room."
@@ -169,12 +202,6 @@ autoScroll msgListNode reset msgs = do
         ) listHeight msgs
 
     isAtBottom = lift3 (\s h lh -> s + h >= lh) scrl listVisibleHeight listHeight
-
-    -- scrollToBottom :: Effect Unit
-    -- scrollToBottom = do
-    --   h <- scrollHeight $ unsafeCoerce msgListNode
-    --   setScrollTop h (unsafeCoerce msgListNode)
-
   
   subscribeDyn_ (unsafeCoerce >>> Console.log) $ lift3 Triple scrl listVisibleHeight listHeight
 
@@ -236,9 +263,9 @@ joinedRoomView env rId room = do
 
   -- Message composition widget, which will produce message events whenever "send" is clicked.
   fixFRP_ \messages -> do
-    currentRequest <- holdDyn Nothing (map Just (sendMessage env.session rId <$> messages))
+    currentRequest <- holdDyn Nothing (map Just (sendTextMessage env.session rId <$> messages))
     result <- asyncRequestMaybe currentRequest
-    composeMessageWidget
+    composeMessageWidget env
 
   pure unit
 

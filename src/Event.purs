@@ -50,59 +50,64 @@ data MatrixRoomEvent
   | RoomPinnedEvents (Array EventId)
   | UnknownRoomEvent String
 
-decodeRoomEventContent :: Object Json -> Either String MatrixRoomEvent
-decodeRoomEventContent o = do
-  content <- o .: "content"
-  o .: "type" >>= case _ of
+instance decodeRoomEventContent :: DecodeJson MatrixRoomEvent where
+  decodeJson json = do
+    o <- decodeJson json
+    content <- o .: "content"
+    o .: "type" >>= case _ of
 
-    -- A regular message, possibly containing multimedia based on its' msgType member.
-    "m.room.message" -> do
-      body <- content .: "body"
-      msgtype <-
-        content .: "msgtype"
-          >>= case _ of
-              "m.text" -> pure Text
-              "m.emote" -> pure Emote
-              "m.notice" -> pure Notice -- TODO verify we're using the right keys here.
-              "m.image" -> Image <$> o .: "url"
-              "m.file" -> File <$> o .: "url"
-              "m.audio" -> Audio <$> o .: "url"
-              "m.location" -> Location <$> o .: "url"
-              "m.video" -> Video <$> o .: "url"
-              unknown -> pure $ Unknown unknown
-      pure $ Message { body, msgtype }
+      -- A regular message, possibly containing multimedia based on its' msgType member.
+      "m.room.message" -> do
+        body <- content .: "body"
+        msgtype <-
+          content .: "msgtype"
+            >>= case _ of
+                "m.text" -> pure Text
+                "m.emote" -> pure Emote
+                "m.notice" -> pure Notice -- TODO verify we're using the right keys here.
+                "m.image" -> Image <$> content .: "url"
+                "m.file" -> File <$> content .: "url"
+                "m.audio" -> Audio <$> content .: "url"
+                "m.location" -> Location <$> content .: "url"
+                "m.video" -> Video <$> content .: "url"
+                unknown -> pure $ Unknown unknown
+        pure $ Message { body, msgtype }
+        
+      -- Room membership, for when a user enters/leaves a room or changes their status while in the room.
+      "m.room.member" -> do
+        displayname <- getFieldOptional' content "displayname"
+        avatar_url <- getFieldOptional' content "avatar_url"
+        membership <- content .: "membership"
+        -- State key determines whose status this affects.
+        state_key <- o .: "state_key"
+        pure $ Membership { profile: { displayname, avatar_url }, membership, user_id: state_key }
+
+      -- Room display name update
+      "m.room.name" -> do
+        name <- getField content "name"
+        pure $ RoomName name
       
-    -- Room membership, for when a user enters/leaves a room or changes their status while in the room.
-    "m.room.member" -> do
-      displayname <- getFieldOptional' content "displayname"
-      avatar_url <- getFieldOptional' content "avatar_url"
-      membership <- content .: "membership"
-      -- State key determines whose status this affects.
-      state_key <- o .: "state_key"
-      pure $ Membership { profile: { displayname, avatar_url }, membership, user_id: state_key }
+      -- Room topic update
+      "m.room.topic" -> do
+        topic <- getField content "topic"
+        pure $ RoomTopic topic
 
-    -- Room display name update
-    "m.room.name" -> do
-      name <- getField content "name"
-      pure $ RoomName name
-    
-    -- Room topic update
-    "m.room.topic" -> do
-      topic <- getField content "topic"
-      pure $ RoomTopic topic
+      -- Room's canonical alias.
+      "m.room.canonical_alias" -> do
+        ca <- getField content "alias"
+        pure $ RoomCanonicalAlias ca
 
-    -- Room's canonical alias.
-    "m.room.canonical_alias" -> do
-      ca <- getField content "alias"
-      pure $ RoomCanonicalAlias ca
+      -- Room's avatar.
+      "m.room.avatar" -> do
+        url <- getField content "url"
+        pure $ RoomAvatar url
 
-    -- Room's avatar.
-    "m.room.avatar" -> do
-      url <- getField content "url"
-      pure $ RoomAvatar url
+      -- Event types can be made up on the fly, so an unknown one isn't too exceptional.
+      unknown -> pure $ UnknownRoomEvent $ "Unknown event type " <> unknown
 
-    -- Event types can be made up on the fly, so an unknown one isn't too exceptional.
-    unknown -> pure $ UnknownRoomEvent $ "Unknown event type " <> unknown
+
+
+
 
 instance decodeJsonRoomEvent :: DecodeJson (MatrixEvent MatrixRoomEvent) where
   decodeJson json = do
@@ -111,7 +116,7 @@ instance decodeJsonRoomEvent :: DecodeJson (MatrixEvent MatrixRoomEvent) where
     event_id <- o .: "event_id"
     sender <- o .: "sender"
     -- Not using monadic bind because we keep any errors as Left in the resulting value.
-    let content = case decodeRoomEventContent o of
+    let content = case decodeJson json of
           (Right c) -> Right c
           (Left e) -> Left (e <> " Original: " <> stringify json)
     origin_server_ts <- Milliseconds <$> o .: "origin_server_ts"

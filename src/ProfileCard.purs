@@ -4,14 +4,12 @@ import Prelude
 
 import CustomCombinators (elClass, elemOnClick)
 import Data.Maybe (Maybe(..))
-import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.Types (UserId, UserProfile, unUserId)
 import Specular.Dom.Builder.Class (text)
 import Specular.Dom.Widget (class MonadWidget)
-import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.FRP (subscribeEvent_)
 
 profileCard ::

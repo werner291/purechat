@@ -5,7 +5,7 @@ import Prelude
 import Control.Apply (lift2)
 import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
 import Data.Either (Either(..), hush)
-import Data.Foldable (class Foldable, foldM)
+import Data.Foldable (foldM, for_)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -14,7 +14,6 @@ import Effect (Effect)
 import Effect.Aff (Aff, try)
 import Effect.Class (liftEffect)
 import Effect.Exception (Error)
-import Effect.Ref as Ref
 import Effect.Timer (clearInterval, setInterval)
 import Foreign.Object as Object
 import Prim.Row (class Union)
@@ -23,6 +22,7 @@ import Specular.Dom.Browser (Node, TagName, Attrs)
 import Specular.Dom.Builder.Class (domEventWithSample, elAttr, elAttr')
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.FRP (class MonadFRP, Behavior, Dynamic, Event, WeakDynamic, changed, current, dynamic, filterMapEvent, fixFRP, foldDyn, foldDynMaybe, holdWeakDyn, never, newDynamic, newEvent, sampleAt, subscribeEvent_, switch, unWeakDynamic)
+import Specular.FRP as Event
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, fromLoaded)
 import Specular.Ref (readRef)
 import Specular.Ref as SRef
@@ -119,26 +119,39 @@ elemOnClick tagName attrs inner = do
 type FanOutInternal v o
   = { addUpdate :: v -> Effect Unit -- Feed a new event to the output
     , output :: o -- The output to expose in the output dictionary.
+    , cleanup :: Effect Unit
     }
 
 -- | Take an `Event (f (Tuple k v))` and monadically create some new output every time a new key is encountered.
 -- | For instance, one can use `foldDyn` in the monadic action to create a per-key state machine.
 -- | This is more efficient than filtering on each key as the keys are routed to outputs in O(log n) time.
-fanOutM :: forall k v o m f. Foldable f => Ord k => MonadFRP m => Event (f (Tuple k v)) -> (k -> v -> Event v -> (CleanupT Effect o)) -> m (Dynamic (Map k o))
-fanOutM evt mkConsumer = do
+-- | For every key in the "Removals", the corresponding entry in the fanout map is removed if present.
+-- | If both an update and a removal are present, the removal precedes the update.
+fanOutM :: forall k v o m. Ord k => MonadFRP m => Event (Array (Tuple k v)) -> Event (Array k) -> (k -> v -> Event v -> (CleanupT Effect o)) -> m (Dynamic (Map k o))
+fanOutM evt removals mkConsumer = do
   -- Internal Dynamic that keeps track of all outputs, containing the output itself and the callback to give it new events
   st_dyn <- newDynamic (Map.empty :: Map k (FanOutInternal v o))
-  -- Accumulate a cleanup action that can be added to through Effect
-  cleanups :: Ref.Ref (Effect Unit) <- liftEffect $ Ref.new (pure unit)
+
   -- On cleanup, just read and execute.
-  onCleanup $ Ref.read cleanups >>= \c -> c
+  onCleanup $ do
+    m <- st_dyn.read
+    for_ (Map.values m) $ _.cleanup 
+    
   -- Subscribe to the event stream.
-  flip subscribeEvent_ evt \f -> do
+  flip subscribeEvent_ (Event.mergeEvents (\a -> pure $ Tuple a []) 
+                                          (\b -> pure $ Tuple [] b)
+                                          (\a b -> pure $ Tuple a b) 
+                                          evt removals) \(Tuple updates rems) -> do
     -- Dereference the current set of outputs.
     st_before <- st_dyn.read
+
+    st_after_removals :: Map _ _ <- foldM (\st rem -> do
+      for_ (Map.lookup rem st) _.cleanup
+      pure $ Map.delete rem st) st_before rems
+
     -- Check if an output for that key already exists.
     let
-      foldStepTuple :: Map k (FanOutInternal v o) -> Tuple k v -> CleanupT Effect (Map k (FanOutInternal v o))
+      foldStepTuple :: Map k (FanOutInternal v o) -> Tuple k v -> Effect (Map k (FanOutInternal v o))
       foldStepTuple st (Tuple kk vv) = case Map.lookup kk st of
         -- Yes it does, just fire the event.
         Just { addUpdate } -> do
@@ -148,14 +161,13 @@ fanOutM evt mkConsumer = do
           -- Create a new event to feed events into
           evt' <- newEvent
           -- Initialize the output using the provided consumer
-          output <- mkConsumer kk vv evt'.event
+          (Tuple output cleanup) <- runCleanupT $ mkConsumer kk vv evt'.event
           -- Add it to the list of outputs
-          pure $ Map.insert kk { addUpdate: evt'.fire, output } st
+          pure $ Map.insert kk { addUpdate: evt'.fire, output, cleanup } st
     -- Register for cleanup once the fanOutM context dies.
-    Tuple st_after cleanup <- runCleanupT $ foldM foldStepTuple st_before f
-    _ <- Ref.modify (\c -> c >>= const cleanup) cleanups
-    st_dyn.set st_after
-    pure unit
+    st_dyn.set =<< foldM foldStepTuple st_after_removals updates 
+    pure unit 
+
   pure (map (map _.output) st_dyn.dynamic)
 
 -- | Whenever the `Dynamic (RequestState a)` changes to `Loaded x`, emit `x` as an event.

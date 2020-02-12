@@ -21,7 +21,7 @@ import Data.Map (Map, findMax)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Maybe as Maybe
-import Data.Set (Set)
+import Data.Set (Set, toUnfoldable)
 import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
@@ -320,7 +320,7 @@ mkRoomFeed si rId ru rus = do
 serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
 serverState si = do
   feed :: Event SyncPollResult <- syncFeed si
-  joined_rooms <- fanOutM (tupleizeFeed feed) (mkRoomFeed si)
+  joined_rooms <- fanOutM (tupleizeFeed feed) (feed <#> \spr -> toUnfoldable $ Map.keys spr.rooms.leave) (mkRoomFeed si)
   joined_rooms_rr :: Dynamic (RemoteResourceView (Map RoomId (JoinedRoom m))) <-
     toLoadedUpdates $ changed joined_rooms
   -- global_presence <- fanOutM (decodePres feed) (\userId init updt -> holdDyn init updt)

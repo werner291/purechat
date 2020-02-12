@@ -2,7 +2,7 @@ module API.Core where
 
 import Prelude
 
-import Affjax (Response, ResponseFormatError, printResponseFormatError)
+import Affjax (Response, ResponseFormatError, URL, printResponseFormatError)
 import Affjax as AX
 import Affjax.RequestBody as RB
 import Affjax.RequestHeader (RequestHeader(..))
@@ -81,19 +81,30 @@ putJsonAuthed si path body = requestJsonAuthed si path PUT (Just body)
 getJsonAuthed :: SessionInfo -> String -> Aff (Response (Either ResponseFormatError Json))
 getJsonAuthed si path = requestJsonAuthed si path GET Nothing
 
+sendTextMessage :: SessionInfo -> RoomId -> String -> Aff Unit
+sendTextMessage si roomId body = sendMessageWithJsonContent si roomId ("msgtype" := "m.text" ~> "body" := body ~> JSON.jsonEmptyObject)
+
+sendEmoteMessage :: SessionInfo -> RoomId -> String -> Aff Unit
+sendEmoteMessage si roomId body = sendMessageWithJsonContent si roomId ("msgtype" := "m.emote" ~> "body" := body ~> JSON.jsonEmptyObject)
+
+sendNoticeMessage :: SessionInfo -> RoomId -> String -> Aff Unit
+sendNoticeMessage si roomId body = sendMessageWithJsonContent si roomId ("msgtype" := "m.notice" ~> "body" := body ~> JSON.jsonEmptyObject)
+
+-- sendImageMessage :: SessionInfo -> RoomId -> String -> URL -> Aff Unit
+-- sendImageMessage si roomId body = ("msgtype" := "m.image" ~> "body" := body ~> "url" := url ~> JSON.jsonEmptyObject)
+
+sendFileMessage :: SessionInfo -> RoomId -> String -> URL -> Aff Unit
+sendFileMessage si roomId body url = sendMessageWithJsonContent si roomId ("msgtype" := "m.audio" ~> "body" := body ~> "url" := url ~> JSON.jsonEmptyObject)
+
 -- | Send a string message into a room with a given ID
-sendMessage :: SessionInfo -> RoomId -> String -> Aff Unit
-sendMessage si roomId body = do
+sendMessageWithJsonContent :: SessionInfo -> RoomId -> Json -> Aff Unit
+sendMessageWithJsonContent si roomId body = do
   -- Generate a message transaction ID to ensure idempotency.
   txnId <- liftEffect $ UUID.genUUID
-  let
-    -- Body with message text and message type.
-    reqBody :: JSON.Json
-    reqBody = ("msgtype" := "m.text" ~> "body" := body ~> JSON.jsonEmptyObject)
-
+      
     -- Path includes room ID, event type and idempotency TXN id.
-    path = "/_matrix/client/r0/rooms/" <> (unRoomId roomId) <> "/send/m.room.message/" <> (UUID.toString txnId)
-  putJsonAuthed si path reqBody >>= responseOkOrBust
+  let path = "/_matrix/client/r0/rooms/" <> (unRoomId roomId) <> "/send/m.room.message/" <> (UUID.toString txnId)
+  putJsonAuthed si path body >>= responseOkOrBust
 
 -- | Simplify a response with possible error status into an Aff that returns Unit
 -- | if the response status is 200.
