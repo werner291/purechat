@@ -32,7 +32,7 @@ import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object (Object)
 import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), TimeEventId, getTimeId)
-import Purechat.Types (LoginToken(..), PrevBatchToken(..), RemoteResourceView, RoomId(..), UserId, UserStatus, SessionInfo, unRoomId)
+import Purechat.Types (LoginToken(..), PrevBatchToken(..), RemoteResourceView, RoomId(..), SessionInfo, unRoomId)
 import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, startAff)
 
@@ -58,7 +58,7 @@ type SyncPollResult
       , invite :: Map RoomId RoomInvite
       , leave :: Map RoomId RoomLeave
       }
-    , presence :: Map UserId UserStatus
+    -- , presence :: Map UserId UserStatus
     , next_batch :: String
     }
 
@@ -126,8 +126,8 @@ decodePollResult json = do
   leaveRooms <- getField rooms "leave"
   leave <- traverse decodeJson $ objToRoomMap leaveRooms
   next_batch <- obj .: "next_batch"
-  presence <- obj .: "presence"
-  pure { rooms: { join, invite, leave }, next_batch, presence }
+  -- presence <- obj .: "presence"
+  pure { rooms: { join, invite, leave }, next_batch {-, presence -} }
 
 -- Perform a single long-poll request to the /sync endpoint.
 pollSyncOnce :: SessionInfo -> Maybe String -> Aff SyncPollResult
@@ -198,8 +198,8 @@ foldUpdateIntoRoomMeta ruu meta = Array.foldl (flip foldEventIntoRoomState) meta
 tupleizeFeed :: Event SyncPollResult -> Event (Array (Tuple RoomId RoomUpdate))
 tupleizeFeed feed = feed <#> \ru -> (Map.toUnfoldable $ ru.rooms.join)
 
-tupleizePresence :: Event SyncPollResult -> Event (Array (Tuple UserId UserStatus))
-tupleizePresence feed = feed <#> \ru -> (Map.toUnfoldable $ ru.presence)
+-- tupleizePresence :: Event SyncPollResult -> Event (Array (Tuple UserId UserStatus))
+-- tupleizePresence feed = feed <#> \ru -> (Map.toUnfoldable $ ru.presence)
 
 combineDemands :: Dynamic (Map Int (Dynamic Int)) -> Dynamic Int
 combineDemands dems = foldM (\m dem -> dem >>= \d -> pure (max d m)) 0 =<< dems

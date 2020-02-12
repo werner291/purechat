@@ -3,8 +3,8 @@ module Purechat.Event where
 import Prelude
 
 import Affjax (URL)
-import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional', (.:))
-import Data.Either (Either)
+import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional', stringify, (.:))
+import Data.Either (Either(..))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Time.Duration (Milliseconds(..))
 import Foreign.Object (Object)
@@ -52,14 +52,14 @@ data MatrixRoomEvent
 
 decodeRoomEventContent :: Object Json -> Either String MatrixRoomEvent
 decodeRoomEventContent o = do
-  content <- o .: "body"
+  content <- o .: "content"
   o .: "type" >>= case _ of
 
     -- A regular message, possibly containing multimedia based on its' msgType member.
     "m.room.message" -> do
       body <- content .: "body"
       msgtype <-
-        o .: "msgtype"
+        content .: "msgtype"
           >>= case _ of
               "m.text" -> pure Text
               "m.emote" -> pure Emote
@@ -78,7 +78,7 @@ decodeRoomEventContent o = do
       avatar_url <- getFieldOptional' content "avatar_url"
       membership <- content .: "membership"
       -- State key determines whose status this affects.
-      state_key <- content .: "state_key"
+      state_key <- o .: "state_key"
       pure $ Membership { profile: { displayname, avatar_url }, membership, user_id: state_key }
 
     -- Room display name update
@@ -111,7 +111,9 @@ instance decodeJsonRoomEvent :: DecodeJson (MatrixEvent MatrixRoomEvent) where
     event_id <- o .: "event_id"
     sender <- o .: "sender"
     -- Not using monadic bind because we keep any errors as Left in the resulting value.
-    let content = decodeRoomEventContent o
+    let content = case decodeRoomEventContent o of
+          (Right c) -> Right c
+          (Left e) -> Left (e <> " Original: " <> stringify json)
     origin_server_ts <- Milliseconds <$> o .: "origin_server_ts"
     
     pure $ MatrixEvent {

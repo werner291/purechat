@@ -7,6 +7,7 @@ import CustomCombinators (dynamicMaybe_, elClass, pulseSpinner, remoteLoadingVie
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
+import Effect.Class.Console as Console
 import Purechat.EditProfileWidget (editProfileWidget)
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.ServerFeed (serverState)
@@ -57,7 +58,6 @@ mainView env currentRoomView = do
                 -- Maybe some structure where you can subscribe to updates/insertions/deletions,
                 -- similar to how fanOutM works?
                 roomD <- readDynamic (Map.lookup rid <$> st.joined_rooms)
-                -- Yuck, the `pure` here should be a Dynamic that's dedicated to that room.
                 roomView env rid (pure roomD)
           pure unit
         PickRoom -> do
@@ -66,27 +66,6 @@ mainView env currentRoomView = do
 
 userStateToProfile :: UserStatus -> UserProfile
 userStateToProfile ust = {avatar_url:ust.avatar_url, displayname:ust.displayname}
-
--- class Interruptible a b | a -> b where
---   interrupted :: a -> b
-
--- instance eventInterruptible :: Interruptible (Event a) (Event a) where
---   interrupted ev = ev
-
--- dynamicMergeOutputs :: forall a m. Interruptible a. MonadWidget m => 
-  
--- componentA :: forall m. MonadWidget m => m { a :: Event Int }
--- componentA = ?impl_a
-
--- componentB :: forall m. MonadWidget m => m { b :: Event String }
--- componentB = ?impl_b
-
-
--- dynMonoid :: forall sA sB sU m. Record.Builder sA sB sU => Monoid a => MonadWidget m => Dynamic (m a) -> m (Dynamic a)
--- dynMonoid = ?wut
-
--- switchEvents :: forall a b. Dynamic (Record (a :: Event a, b ::Event b))-> { a :: Event a, b ::Event b }
--- switchEvents inpts = ?wut
 
 -- The "primary" widget that is visible once the user is logged in .
 primaryView :: forall m. MonadWidget m => MonadFRP m => SessionInfo -> { logout :: Effect Unit } -> m Unit
@@ -122,4 +101,6 @@ primaryView si env = do
         , closeCurrentProfileCard: currentProfileCard.set Nothing
         }
   dynamicMaybe_ currentProfileCard.dynamic (profileCard inner_env)
-  elClass "div" "main-container" $ sidebar inner_env
+  elClass "div" "main-container" $ do
+    sidebar inner_env
+    mainView inner_env currentRoomView.dynamic

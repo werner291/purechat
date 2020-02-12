@@ -5,24 +5,25 @@ import Prelude
 import API.Core (sendMessage)
 import API.Rooms (RoomMeta, leaveRoom)
 import Control.Apply (lift2, lift3)
-import CustomCombinators (affButtonLoopSimplified, childListMutations, clockMilliseconds, dynamicHitsTarget, dynamicMaybe_, elClass, elClass', elemOnClick, filterByBool, gateEventBy, holdPast, pulseSpinner, sampleFn, subscribeEvent, withPastSkipFirst)
+import CustomCombinators (affButtonLoopSimplified, childListMutations, clockMilliseconds, dynamicHitsTarget, elClass, elClass', elemOnClick, filterByBool, gateEventBy, holdPast, pulseSpinner, sampleFn, subscribeEvent, withPastSkipFirst)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
+import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
-import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..))
+import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), MessageType)
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.JoinRoomWidget (joinRoomView)
 import Purechat.ServerFeed (JoinedRoom)
-import Purechat.Types (RoomId, RoomMembership(..), SessionInfo, UserProfile, unUserId)
+import Purechat.Types (RoomId, RoomMembership(..), SessionInfo, UserId(..), UserProfile, unUserId)
 import Specular.Dom.Browser (Node)
-import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', elAttr, text)
+import Specular.Dom.Builder.Class (domEvent, domEventWithSample, el', text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Button (buttonOnClick)
 import Specular.Dom.Widgets.Input (getTextInputValue, setTextInputValue)
@@ -46,7 +47,9 @@ composeMessageWidget =
     loop :: Event Unit -> m (Tuple (Event Unit) (Event String))
     loop reset = do
       composeMessage :: Dynamic String <- textareaOnChangeWithReset reset
-      sendBtnClicked :: Event Unit <- buttonOnClick (pure mempty) (text "Send")
+      sendBtnClicked :: Event Unit <- buttonOnClick (pure mempty) $ do
+        elClass "i" "fas fa-paper-plane" $ pure unit
+        text " Send"
       let
         outbox = tagDyn composeMessage sendBtnClicked
 
@@ -57,34 +60,47 @@ composeMessageWidget =
 
 viewEvent :: forall m. MonadWidget m => GlobalEnv m -> Dynamic RoomMeta -> MatrixEvent MatrixRoomEvent -> m Unit
 viewEvent env drd (MatrixEvent evt) =
-  elClass "div" "message-wrapper" $ dynamic_ $ drd
-    <#> \rd -> do
-        let
-          sender_profile :: Maybe UserProfile
-          sender_profile = Map.lookup evt.sender rd.members
+  elClass "div" "message-wrapper" $ dynamic_ $ drd <#> \rd -> do
+    let
+      sender_profile :: Maybe UserProfile
+      sender_profile = Map.lookup evt.sender rd.members
 
-          sender_displayname = case sender_profile of
-            Just { displayname: (Just n) } -> n
-            _ -> unUserId evt.sender
+      sender_displayname = case sender_profile of
+        Just { displayname: (Just n) } -> n
+        _ -> unUserId evt.sender
 
-        showAvatarOrDefault env.session (sender_profile >>= (\p -> p.avatar_url))
+      clickeableUsername :: m Unit
+      clickeableUsername = do
+        (Tuple usernameNode _ ) <- elClass' "p" "username" $ text $ sender_displayname
+        subscribeEvent_ (\_ -> env.showProfile evt.sender sender_profile) =<< domEvent "click" usernameNode
 
-        elClass "div" "msg"
-          $ case evt.content of
-              Left errMsg -> elClass "p" "error" $ text $ "Error while decoding message from " <> sender_displayname <> ": " <> errMsg
-              Right (Message { body }) -> do
-                (Tuple usernameNode _ ) <- elClass' "p" "username" $ text sender_displayname
-                subscribeEvent_  (\_ -> env.showProfile evt.sender sender_profile) =<< domEvent "click" usernameNode
-                elClass "p" "message" $ text body
-              Right (Membership { profile, membership: Join }) -> text $ sender_displayname <> " joined the room."
-              Right (Membership { profile, membership: Invite }) -> text $ sender_displayname <> " has been invited to the room."
-              Right (Membership { profile, membership: Leave }) -> text $ sender_displayname <> " left room."
-              Right (RoomAvatar av) -> text $ sender_displayname <> " changed the room's avatar."
-              Right (RoomName n) -> text $ sender_displayname <> " set the room's name to " <> n
-              Right (RoomTopic n) -> text $ sender_displayname <> " set the room's topic to " <> n
-              Right (RoomCanonicalAlias n) -> text $ sender_displayname <> " set the room's canonical alias to " <> n
-              Right (RoomPinnedEvents pins) -> text $ sender_displayname <> " changed the pinned messages."
-              Right (UnknownRoomEvent evtt) -> text $ sender_displayname <> " unknown event type " <> evtt
+      messageView :: String -> m Unit
+      messageView body = do
+        elClass "div" "event-message" do
+          clickeableUsername
+          elClass "p" "message-body" $ text body
+      
+      actionView :: String -> m Unit
+      actionView action = do
+        elClass "div" "event-action" do
+          clickeableUsername
+          text action
+
+    elClass "div" "avatar-wrapper" $ 
+      showAvatarOrDefault env.session (sender_profile >>= (\p -> p.avatar_url))
+
+    case evt.content of
+      Left errMsg -> elClass "p" "error" $ text $ "Error while decoding message from " <> sender_displayname <> ": " <> errMsg
+      Right (Message { body }) -> messageView body
+      Right (Membership { profile, membership: Join }) -> actionView " joined the room."
+      Right (Membership { profile, membership: Invite }) -> actionView " has been invited to the room."
+      Right (Membership { profile, membership: Leave }) -> actionView " the left room."
+      Right (RoomAvatar av) -> actionView $ " changed the room's avatar."
+      Right (RoomName n) -> actionView $ " set the room's name to " <> n
+      Right (RoomTopic n) -> actionView $ " set the room's topic to " <> n
+      Right (RoomCanonicalAlias n) -> actionView $ " set the room's canonical alias to " <> n
+      Right (RoomPinnedEvents pins) -> actionView " changed the pinned messages."
+      Right (UnknownRoomEvent evtt) -> actionView $ " unknown event type " <> evtt
 
 leaveButton :: forall m. MonadWidget m => SessionInfo -> RoomId -> m Unit
 leaveButton si rId = do
@@ -212,13 +228,18 @@ joinedRoomView :: forall m. MonadWidget m => GlobalEnv m -> RoomId -> JoinedRoom
 joinedRoomView env rId room = do
 
   roomTopBar env.session rId room.meta
+
   -- Display a loading spinner at the top of the page whenever new messages are being loaded.
   dynamic_ $ room.loadingMessages <#> \l -> when l pulseSpinner
+
   messageListView env rId room
+
   -- Message composition widget, which will produce message events whenever "send" is clicked.
-  msg <- composeMessageWidget
-  currentRequest <- holdDyn Nothing (map Just (sendMessage env.session rId <$> msg))
-  result <- asyncRequestMaybe currentRequest
+  fixFRP_ \messages -> do
+    currentRequest <- holdDyn Nothing (map Just (sendMessage env.session rId <$> messages))
+    result <- asyncRequestMaybe currentRequest
+    composeMessageWidget
+
   pure unit
 
 -- A single "room view". Think of this as a browser tab with an address bar that can show any
@@ -228,10 +249,6 @@ joinedRoomView env rId room = do
 -- for this widget/ The room view widget can function independently from the directory.
 roomView :: forall m. MonadWidget m => GlobalEnv m -> RoomId -> Dynamic (Maybe (JoinedRoom m)) -> m Unit
 roomView env rId mrd =
-  elAttr "div" (Object.fromFoldable [ Tuple "class" "room-view" ])
-    $ do
-        dynamicMaybe_ mrd (joinedRoomView env rId)
-        dynamic_ $ mrd
-          <#> case _ of
-              Just _ -> pure unit
-              Nothing -> joinRoomView env.session rId
+  elClass "div" "room-view" $ dynamic_ $ mrd <#> case _ of
+    Just jr -> joinedRoomView env rId jr
+    Nothing -> joinRoomView env.session rId
