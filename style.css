@@ -228,6 +228,12 @@ button:hover {
     margin: 1mm;
 }
 
+.message-wrapper .event-redacted {
+    font-weight: 400;
+    margin: 2mm 4mm;
+    color: darkred;
+}
+
 .message-wrapper .event-action .username {
     display: inline-block;
 }

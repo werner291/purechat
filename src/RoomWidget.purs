@@ -16,7 +16,7 @@ import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object as Object
 import Purechat.CustomWidgets (showAvatarOrDefault)
-import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), MessageType(..))
+import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), MessageType(..), Redactible(..))
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.JoinRoomWidget (joinRoomView)
 import Purechat.ServerFeed (JoinedRoom)
@@ -46,27 +46,6 @@ composeMessageWidget env =
     loop :: Event Unit -> m (Tuple (Event Unit) (Event String))
     loop reset = do
       composeMessage :: Dynamic String <- textareaOnChangeWithReset reset
-
-    --   av_url_updates <- affButtonLoopSimplified
-    -- $ case _ of
-    --     NotRequested -> do
-    --       fileChosen <- fileInputOnChange
-    --       pure $ (uploadMXC session) <<< toBlob <$> filterMapEvent identity fileChosen
-    --     Loading -> do
-    --       pulseSpinner
-    --       pure never
-    --     Loaded (Left err) -> do
-    --       fileChosen <- fileInputOnChange
-    --       pure $ (uploadMXC session) <<< toBlob <$> filterMapEvent identity fileChosen
-    --     Loaded (Right mxc) -> do
-    --       fileChosen <- fileInputOnChange
-    --       pure $ (uploadMXC session) <<< toBlob <$> filterMapEvent identity fileChosen
-
-  -- holdDyn Nothing (map Just av_url_updates)
-      
-      -- attachmentUrl <- invisibleUploadingFileInput attachButton =<< do
-      --   buttonOnClick (pure mempty) $ do
-      --     elClass "i" "fas fa-paperclip" $ pure unit
 
       sendBtnClicked :: Event Unit <- buttonOnClick (pure mempty) $ do
         elClass "i" "fas fa-paper-plane" $ pure unit
@@ -111,7 +90,10 @@ viewEvent env drd (MatrixEvent evt) =
 
     case evt.content of
       Left errMsg -> elClass "p" "error" $ text $ "Error while decoding message from " <> sender_displayname <> ": " <> errMsg
-      Right (Message { body, msgtype }) -> case msgtype of
+      Right (Message (RedactedBy _)) -> elClass "div" "event-redacted" $ do
+        -- clickeableUsername
+        text "Redacted."
+      Right (Message (NotRedacted { body, msgtype })) -> case msgtype of
         Emote -> elClass "div" "event-emote" do
           clickeableUsername
           elClass "p" "message-body" $ text body

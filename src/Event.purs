@@ -3,16 +3,17 @@ module Purechat.Event where
 import Prelude
 
 import Affjax (URL)
-import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional', stringify, (.:))
+import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, getField, getFieldOptional', stringify, (.:), (.:?))
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap, wrap)
+import Data.Set (Set)
+import Data.Set as Set
 import Data.Time.Duration (Milliseconds(..))
-import Foreign.Object (Object)
 import Purechat.Types (RoomMembership, UserId, UserProfile)
 
 -- Event Id --
-newtype EventId
-  = MkEventId String
+newtype EventId = MkEventId String
 
 derive instance newtypeEventId :: Newtype EventId _
 
@@ -40,8 +41,10 @@ data MessageType
   | Video URL
   | Unknown String
 
+data Redactible a = NotRedacted a | RedactedBy EventId
+
 data MatrixRoomEvent
-  = Message { body :: String, msgtype :: MessageType }
+  = Message (Redactible { body :: String, msgtype :: MessageType, related_events :: Set EventId })
   | Membership { profile :: UserProfile, membership :: RoomMembership, user_id :: UserId }
   | RoomName String
   | RoomTopic String
@@ -57,21 +60,30 @@ instance decodeRoomEventContent :: DecodeJson MatrixRoomEvent where
     o .: "type" >>= case _ of
 
       -- A regular message, possibly containing multimedia based on its' msgType member.
-      "m.room.message" -> do
-        body <- content .: "body"
-        msgtype <-
-          content .: "msgtype"
-            >>= case _ of
-                "m.text" -> pure Text
-                "m.emote" -> pure Emote
-                "m.notice" -> pure Notice -- TODO verify we're using the right keys here.
-                "m.image" -> Image <$> content .: "url"
-                "m.file" -> File <$> content .: "url"
-                "m.audio" -> Audio <$> content .: "url"
-                "m.location" -> Location <$> content .: "url"
-                "m.video" -> Video <$> content .: "url"
-                unknown -> pure $ Unknown unknown
-        pure $ Message { body, msgtype }
+      "m.room.message" -> 
+        content .:? "body" >>= case _ of
+          Just body -> do
+            msgtype <-
+              content .: "msgtype"
+                >>= case _ of
+                    "m.text" -> pure Text
+                    "m.emote" -> pure Emote
+                    "m.notice" -> pure Notice -- TODO verify we're using the right keys here.
+                    "m.image" -> Image <$> content .: "url"
+                    "m.file" -> File <$> content .: "url"
+                    "m.audio" -> Audio <$> content .: "url"
+                    "m.location" -> Location <$> content .: "url"
+                    "m.video" -> Video <$> content .: "url"
+                    unknown -> pure $ Unknown unknown
+            pure $ Message (NotRedacted { body, msgtype, related_events: Set.empty })
+          
+          Nothing -> do
+            -- See https://matrix.org/docs/spec/client_server/r0.6.0#id266
+            unsigned <- o .: "unsigned"
+             -- Possible improvement: The "redacted_because" might be useful? 
+             -- Though we should have that event in the timeline anyway.
+            redacted_by <- unsigned .: "redacted_by"
+            pure $ Message (RedactedBy redacted_by)
         
       -- Room membership, for when a user enters/leaves a room or changes their status while in the room.
       "m.room.member" -> do
