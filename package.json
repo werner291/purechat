@@ -1,8 +1,6 @@
 {
   "dependencies": {
     "@fortawesome/fontawesome-free": "^5.11.2",
-    "@funkia/hareactive": "^0.3.4",
-    "@funkia/turbine": "^0.4.0",
     "static": "^2.0.0",
     "uuid": "^3.3.3",
     "uuid-validate": "0.0.3"
