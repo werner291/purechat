@@ -4,8 +4,9 @@ import Prelude
 
 import CustomCombinators (elClass, elemOnClick, pulseSpinner)
 import Data.FoldableWithIndex (traverseWithIndex_)
+import Data.Map as Map
 import Data.Set as Set
-import Data.Traversable (traverse_)
+import Data.Traversable (for_, traverse_)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Foreign.Object as Object
@@ -48,7 +49,15 @@ channelDirectory env rkss = do
         pulseSpinner
         text "Loading Channels..."
       RRLoaded st -> do
+      
         el "h2" $ text "Joined rooms"
+
+        withDynamic_ st.rooms_by_tag $ traverseWithIndex_ $ \tag rIds -> do
+          text tag
+          for_ rIds $ \rId -> do
+            withDynamic_ st.joined_rooms $ \rooms -> do
+              for_ (Map.lookup rId rooms) $ \jr -> 
+                dynamic_ $ jr.meta <#> \meta -> roomLinkLi env rId meta.display_name
 
         el "ul" $
           withDynamic_ st.joined_rooms $ traverseWithIndex_ (\rId jr -> dynamic_ $ jr.meta <#> \meta -> roomLinkLi env rId meta.display_name)
