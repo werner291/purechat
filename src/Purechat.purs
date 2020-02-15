@@ -7,7 +7,6 @@ import CustomCombinators (dynamicMaybe_, elClass, pulseSpinner, remoteLoadingVie
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
-import Effect.Class.Console as Console
 import Purechat.EditProfileWidget (editProfileWidget)
 import Purechat.GlobalEnv (GlobalEnv)
 import Purechat.ServerFeed (serverState)

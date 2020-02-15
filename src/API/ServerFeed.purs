@@ -11,7 +11,7 @@ import Control.Alt ((<|>))
 import Control.Apply (lift2)
 import Control.Monad.Cleanup (CleanupT, onCleanup)
 import CustomCombinators (affSuccesses, fanOutM, toLoadedUpdates)
-import Data.Argonaut (Json, decodeJson, getField, (.:))
+import Data.Argonaut (Json, decodeJson, getField, (.:), (.:?))
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Foldable (foldM)
@@ -113,7 +113,7 @@ decodeRoomUpdate json = do
   prev_batch <- PrevBatchToken <$> timeline .: "prev_batch"
   state <- o .: "state"
   new_state_events <- state .: "events"
-  new_account_data <- state .: "account_data"
+  new_account_data <- fromMaybe mempty <$> state .:? "account_data"
   pure
     { new_timeline_events
     , new_state_events
