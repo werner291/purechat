@@ -17,6 +17,7 @@ import Data.Either (Either(..))
 import Data.Foldable (foldM)
 import Data.FoldableWithIndex (foldlWithIndex)
 import Data.List as List
+import Data.List.Lazy (List)
 import Data.Map (Map, findMax)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -31,7 +32,8 @@ import Effect.Aff as EE
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Foreign.Object (Object)
-import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), TimeEventId, getTimeId)
+import Foreign.Object as Object
+import Purechat.Event (MatrixEvent(..), MatrixRoomEvent(..), RoomAccountDataEvent(..), TimeEventId, getTimeId)
 import Purechat.Types (LoginToken(..), PrevBatchToken(..), RemoteResourceView, RoomId(..), SessionInfo, unRoomId)
 import Specular.FRP (class MonadFRP, Dynamic, Event, WeakDynamic, changed, fixFRP, foldDyn, holdDyn, holdWeakDyn, mergeEvents, newDynamic, newEvent, subscribeDyn_)
 import Specular.FRP.Async (RequestState(..), asyncRequestMaybe, startAff)
@@ -46,6 +48,7 @@ type RoomInvite
 type RoomUpdate
   = { new_timeline_events :: Array (MatrixEvent MatrixRoomEvent)
     , new_state_events :: Array (MatrixEvent MatrixRoomEvent)
+    , new_account_data :: Array RoomAccountDataEvent
     , prev_batch :: PrevBatchToken
     }
 
@@ -70,6 +73,7 @@ type JoinedRoom m
 
 type KnownServerState m
   = { joined_rooms :: Dynamic (Map RoomId (JoinedRoom m))
+    , rooms_by_tag :: Dynamic (Map String (Array RoomId))
     , invited_to :: Dynamic (Set RoomId)
     -- , global_presence :: Dynamic (Map UserId (Dynamic UserStatus))
     }
@@ -93,6 +97,11 @@ foldEventIntoRoomState (MatrixEvent { content }) st = case content of
   Right (RoomAvatar a) -> st { avatar_url = Just a }
   Right (RoomPinnedEvents evts) -> st { pinned_events = evts }
   Right (UnknownRoomEvent _) -> st
+
+foldAccountDataEventIntoRoomState :: MatrixEvent RoomAccountDataEvent -> RoomMeta -> RoomMeta
+foldAccountDataEventIntoRoomState (MatrixEvent {content}) meta = case content of
+  Right (RoomTags tags) -> meta { tags = tags }
+  _ -> meta
   -- _ -> st
 
 -- Decode a RoomUpdate from JSON.
@@ -104,9 +113,11 @@ decodeRoomUpdate json = do
   prev_batch <- PrevBatchToken <$> timeline .: "prev_batch"
   state <- o .: "state"
   new_state_events <- state .: "events"
+  new_account_data <- state .: "account_data"
   pure
     { new_timeline_events
     , new_state_events
+    , new_account_data
     , prev_batch
     }
 
@@ -187,6 +198,7 @@ initMeta rId =
   , name: Nothing
   , avatar_url: Nothing
   , pinned_events: []
+  , tags : Object.empty
   }
 
 succMaxKey :: forall v. Map Int v -> Int
@@ -317,11 +329,38 @@ mkRoomFeed si rId ru rus = do
 
 -- decodePresenceEvent :: forall m. Json -> Either String (UserStatus)
 
+-- fanIn :: forall k v. Dynamic (Map k (Dynamic v))
+-- fanIn 
+
+flipTags :: Map RoomId (Map String Number) -> Map String (Array RoomId)
+flipTags toFlip =
+  let
+    tuples :: List _ --(Tuple String (Array (Tuple RoomId Number)))
+    tuples = do 
+      Tuple rId tags <- Map.toUnfoldable toFlip
+      Tuple tag prior <- Map.toUnfoldable tags
+      pure $ Tuple tag [{rId, prior}]
+
+    -- tuplesByTag :: Map String (Array (Tuple RoomId Number))
+    tuplesByTag = Map.fromFoldableWith (<>) tuples
+        
+    in tuplesByTag <#> \roomsInTag -> _.rId <$> Array.sortWith _.prior roomsInTag
+      
+
+--foldMapWithIndex (\rId rTags -> foldMapWithIndex (\tag prior -> pure { rId, tag, prior}) rTags) toFlip
+
 serverState :: forall m. MonadFRP m => SessionInfo -> m (Dynamic (RemoteResourceView (KnownServerState m)))
 serverState si = do
   feed :: Event SyncPollResult <- syncFeed si
   joined_rooms <- fanOutM (tupleizeFeed feed) (feed <#> \spr -> toUnfoldable $ Map.keys spr.rooms.leave) (mkRoomFeed si)
   joined_rooms_rr :: Dynamic (RemoteResourceView (Map RoomId (JoinedRoom m))) <-
     toLoadedUpdates $ changed joined_rooms
+
+  let 
+    rooms_by_tag = do
+      jr :: (Map RoomId (JoinedRoom m)) <- joined_rooms
+      jr_with_tags <- traverse (\jr' -> jr'.meta <#> (\mt -> Map.fromFoldableWithIndex mt.tags)) jr
+      pure $ flipTags jr_with_tags
+
   -- global_presence <- fanOutM (decodePres feed) (\userId init updt -> holdDyn init updt)
-  pure $ map (map $ const { joined_rooms: joined_rooms, invited_to: pure $ Set.empty {-, global_presence-} }) joined_rooms_rr
+  pure $ map (map $ const { joined_rooms: joined_rooms, invited_to: pure $ Set.empty, rooms_by_tag {-, global_presence-} }) joined_rooms_rr

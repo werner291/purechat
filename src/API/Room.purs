@@ -12,6 +12,7 @@ import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set (Set)
 import Data.Traversable (traverse)
 import Effect.Aff (Aff, error, throwError)
+import Foreign.Object (Object)
 import Global (encodeURIComponent)
 import Purechat.Event (EventId, MatrixEvent, MatrixRoomEvent)
 import Purechat.Types (PrevBatchToken(..), RoomId(..), SessionInfo, UserId, UserProfile, unPrevBatchToken, unRoomId, unUserId)
@@ -26,6 +27,7 @@ type RoomMeta
     , name :: Maybe String -- Explicitly-set name of the room
     , avatar_url :: Maybe URL
     , pinned_events :: Array EventId
+    , tags :: Object Number
     }
 
 tryEncodeUriComponent :: String -> Aff String

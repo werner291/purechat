@@ -61,6 +61,12 @@ channelDirectory env rkss =
         inviterow :: Dynamic RoomId -> m (Event RoomId)
         inviterow d = switch <$> dynamic (d <#> clickableLiInvite)
 
+      el "h2" $ text "Joined rooms"
+
+      pickedFromJoined <-
+        (switch <<< map leftmost)
+          <$> el "ul" (dynamicList (Map.toUnfoldable <$> st.joined_rooms) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))
+
       el "h2" $ text "Invitations"
 
       dynamic_ $ st.invited_to <#> \s -> 
@@ -69,12 +75,6 @@ channelDirectory env rkss =
       pickedFromInvite <-
         (switch <<< map leftmost)
           <$> el "ul" (dynamicList (Set.toUnfoldable <$> st.invited_to) $ inviterow)
-
-      el "h2" $ text "Joined rooms"
-
-      pickedFromJoined <-
-        (switch <<< map leftmost)
-          <$> el "ul" (dynamicList (Map.toUnfoldable <$> st.joined_rooms) $ (\d -> viewrow $ d <#> \(Tuple rId dm) -> (Tuple rId dm.meta)))
 
       subscribeEvent_ env.openRoom $ leftmost [pickedFromJoined, pickedFromInvite ]
   in do

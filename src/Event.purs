@@ -3,13 +3,17 @@ module Purechat.Event where
 import Prelude
 
 import Affjax (URL)
-import Data.Argonaut (class DecodeJson, class EncodeJson, decodeJson, encodeJson, getField, getFieldOptional', stringify, (.:), (.:?))
+import Affjax.RequestBody (RequestBody(..), json)
+import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional', stringify, (.:), (.:?))
+import Data.ArrayBuffer.Types (Float32)
 import Data.Either (Either(..))
+import Data.Map (Map)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Set (Set)
 import Data.Set as Set
 import Data.Time.Duration (Milliseconds(..))
+import Foreign.Object (Object)
 import Purechat.Types (RoomMembership, UserId, UserProfile)
 
 -- Event Id --
@@ -117,11 +121,7 @@ instance decodeRoomEventContent :: DecodeJson MatrixRoomEvent where
       -- Event types can be made up on the fly, so an unknown one isn't too exceptional.
       unknown -> pure $ UnknownRoomEvent $ "Unknown event type " <> unknown
 
-
-
-
-
-instance decodeJsonRoomEvent :: DecodeJson (MatrixEvent MatrixRoomEvent) where
+instance decodeJsonRoomEvent :: DecodeJson a => DecodeJson (MatrixEvent a) where
   decodeJson json = do
     o <- decodeJson json
     -- These fields are common to all room events.
@@ -136,16 +136,30 @@ instance decodeJsonRoomEvent :: DecodeJson (MatrixEvent MatrixRoomEvent) where
     pure $ MatrixEvent {
       content, event_id, origin_server_ts, sender
     }
+
+-- See https://matrix.org/docs/spec/client_server/latest#id251
+-- Events found under the "account_data" key in room-related structs.
+data RoomAccountDataEvent = RoomTags (Object Number)
+                          | UnknownRoomAccountDataEvent String
+
+instance decodeJsonRoomAccountDataEvent :: DecodeJson RoomAccountDataEvent where
+  decodeJson json = do
+    o <- decodeJson json
+    content :: Object Json <- o .: "content"
+    o .: "type" >>= case _ of
+      "m.tag" -> do
+        tags <- o .: "tags"
+        pure $ RoomTags tags
+      other -> pure $ UnknownRoomAccountDataEvent other
     
--- newtype PresenceEvent 
+
 
 ---------------------------------
 -- Time-Event id helper tuple. --
 ---------------------------------
 -- beginregion
 -- Combination of milliseconds since unix epoch and event id.
-data TimeEventId
-  = TimeEventId Milliseconds EventId
+data TimeEventId = TimeEventId Milliseconds EventId
 
 derive instance eqTimeEventId :: Eq TimeEventId
 
