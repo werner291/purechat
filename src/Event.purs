@@ -3,11 +3,8 @@ module Purechat.Event where
 import Prelude
 
 import Affjax (URL)
-import Affjax.RequestBody (RequestBody(..), json)
 import Data.Argonaut (class DecodeJson, class EncodeJson, Json, decodeJson, encodeJson, getField, getFieldOptional', stringify, (.:), (.:?))
-import Data.ArrayBuffer.Types (Float32)
 import Data.Either (Either(..))
-import Data.Map (Map)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Set (Set)

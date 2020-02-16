@@ -185,6 +185,22 @@ button:hover {
     margin: 1mm 0;
 }
 
+.channel-directory li .fa-tag {
+    opacity: 0;
+    float: right;
+    margin: 1mm;
+}
+
+.channel-directory li:hover {
+    margin: 1mm 0;
+    background-color: rgb(0, 0, 50);
+}
+
+.channel-directory li:hover .fa-tag {
+    opacity: 100;
+    float: right;
+}
+
 .sidebar input {
     box-sizing: border-box;
     width: 100%;
