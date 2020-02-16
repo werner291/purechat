@@ -4,11 +4,16 @@ import Prelude
 
 import Control.Apply (lift2)
 import Control.Monad.Cleanup (onCleanup, runCleanupT, CleanupT)
+import Control.Monad.Replace (Slot(..), newSlot)
 import Data.Either (Either(..), hush)
-import Data.Foldable (foldM, for_)
+import Data.Foldable (class Foldable, foldM, for_)
+import Data.FoldableWithIndex (class FoldableWithIndex)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Newtype (traverse)
+import Data.Set (Set)
+import Data.Traversable (class Traversable)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (Aff, try)
@@ -248,6 +253,12 @@ holdFirst :: forall a m. MonadFRP m => Event a -> m (Dynamic (Maybe a))
 holdFirst updt = foldDynMaybe (\a current -> case current of
   Just _ -> Nothing
   Nothing -> Just (Just a)) Nothing updt
+
+dynamicKeyedList :: forall k v o m f. MonadWidget m => Traversable f => Eq k => Dynamic (f v) -> (v -> k) -> (v -> m o) -> m (Dynamic (f o))
+dynamicKeyedList source view = do
+  runW
+  dynamic $ source <#> traverse view
+   
 
 -- firstAppearanceOfKey :: forall k v. Ord k => k -> Dynamic (Map k v) -> Dynamic (Maybe v)
 -- firstAppearanceOfKey k dm = holdFirst (filterMapEvent (Map.lookup k) changed dm)

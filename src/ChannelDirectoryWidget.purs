@@ -15,11 +15,10 @@ import Purechat.Types (RemoteResourceView(..), RoomId, mkRoomId, unRoomId)
 import Specular.Dom.Builder.Class (el, onDomEvent, text)
 import Specular.Dom.Widget (class MonadWidget)
 import Specular.Dom.Widgets.Input (textInput, textInputValueEventOnEnter)
-import Specular.FRP (Dynamic, Event, dynamic_, never, subscribeEvent_, withDynamic_)
+import Specular.FRP (Dynamic, Event, dynamic_, never, newDynamic, subscribeEvent_, whenD, withDynamic_)
+import Specular.FRP as Event
 import Unsafe.Coerce (unsafeCoerce)
 import Web.Event.Event (stopPropagation)
-import Web.HTML (window)
-import Web.HTML.Window (alert)
 
 searchBar :: forall m. MonadWidget m => m (Event String)
 searchBar = do
@@ -36,10 +35,19 @@ roomLinkLi env rId display_name = do
   clicks :: Event Unit <- elemOnClick "li" mempty $ do
     text display_name
     Tuple tagBtn _ <- elClass' "i" "fas fa-tag" $ pure unit
-    onDomEvent "click" tagBtn $ \ev -> do
-      stopPropagation (unsafeCoerce ev)
-      w <- window
-      alert ("Tag!" <> unRoomId rId) w
+    
+    tagEditorOpen <- newDynamic false
+    onDomEvent "click" tagBtn $ \evt -> do
+      stopPropagation $ unsafeCoerce evt
+      tagEditorOpen.modify not
+      -- tagMenuOpen <- foldDyn (\a b -> not b) false openTag
+    whenD tagEditorOpen.dynamic do
+      tI <- textInput { initialValue : "", setValue : Event.never, attributes : pure (Object.singleton "class" "tag-entry") }
+      tags <- textInputValueEventOnEnter tI
+      subscribeEvent_ (\tag -> do
+        tagEditorOpen.set false
+        ) tags
+      pure unit
     pure unit
   subscribeEvent_ (const $ env.openRoom rId) clicks
 
